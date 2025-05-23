@@ -1,4 +1,4 @@
-# BetWise-Backend-Project
+# BetWise-Backend-Project-Milestone-Two
 
 **Objective 5: Sports Betting Platform (BetWise)**
 
