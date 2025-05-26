@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # BetWise Backend Project
+=======
+# BetWise-Backend-Project-Milestone-Two
+>>>>>>> 10297523b345583a35bacc8d491f1522ff443241
 
 ## 🏟️ Overview
 
