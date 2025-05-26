@@ -62,11 +62,13 @@ Content-Type: application/json
 POST /auth/login
 Content-Type: application/json
 {
-  "username": "HSSamuel",
-  "email": "smkmayomisamuel@gmail.com",
-  "password": "Iamgreatness@2025"
+    "email": "smkmayomisamuel@gmail.com", 
+    "password": "Iamgreatness123",  
+    "username": "HSSamuel",  
+    "firstName": "Semako",   
+    "lastName": "Hunsa",     
+    "state": "Lagos"      
 }
-```
 
 ### Place a Bet
 
