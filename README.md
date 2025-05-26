@@ -50,9 +50,9 @@ BetWise is a sports betting backend platform where users can place virtual bets 
 POST /auth/register
 Content-Type: application/json
 {
-  "username": "johndoe",
-  "email": "john@example.com",
-  "password": "password123"
+  "username": "HSSamuel",
+  "email": "smkmayomisamuel@gmail.com",
+  "password": "Iamgreatness@2025"
 }
 ```
 
@@ -62,8 +62,9 @@ Content-Type: application/json
 POST /auth/login
 Content-Type: application/json
 {
-  "email": "john@example.com",
-  "password": "password123"
+  "username": "HSSamuel",
+  "email": "smkmayomisamuel@gmail.com",
+  "password": "Iamgreatness@2025"
 }
 ```
 
@@ -97,28 +98,20 @@ Content-Type: application/json
 
 3. **Configure environment**
 
-   - Create a `.env` file based on `.env.example` or provided `.env`.
+   - I created a `.env` file based on `.env.example`.
    - Set up MongoDB connection string and secret keys.
 
 4. **Run the server**
 
    ```bash
-   npm start
+   npm start or npm run dev
    ```
 
 ## 🧪 Running Tests
 
 ```bash
-npm test
+ npm start or npm run dev
 ```
-
-## 📥 Postman Collection
-
-A Postman collection is provided for easy API testing.
-
-- Import the `BetWise.postman_collection.json` file into Postman.
-- Contains preconfigured requests for all endpoints.
-
 ## 🏗️ Project Structure
 
 ```
@@ -145,6 +138,6 @@ A Postman collection is provided for easy API testing.
 - **v1.1.0** — Added CLI tools for admin management.
 - **v1.2.0** — Improved test coverage and added wallet transaction simulation.
 
-## 📄 License
+## 📄 Author
 
-This project is licensed under the MIT License.
+Created by HUNSA, S. Samuel
