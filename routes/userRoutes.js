@@ -1,17 +1,25 @@
 const express = require("express");
 const router = express.Router();
-const userController = require("../controllers/userController");
-const { auth, isAdmin } = require("../middleware/authMiddleware");
+const {
+  getProfile,
+  changeEmail,
+  changePassword,
+} = require("../controllers/userController");
+const { auth } = require("../middleware/authMiddleware"); // Only auth, not isAdmin, for user's own actions
 
-// Protected user route
-router.get("/profile", auth, (req, res) => {
-  res.json({ user: req.user });
-});
+// @route   GET /users/profile
+// @desc    Get current logged-in user's profile
+// @access  Private (Authenticated User)
+router.get("/profile", auth, getProfile);
 
-// Change email
-router.patch("/email", auth, userController.changeEmail);
+// @route   PATCH /users/email
+// @desc    Change current logged-in user's email
+// @access  Private (Authenticated User)
+router.patch("/email", auth, changeEmail);
 
-// Change password
-router.patch("/password", auth, userController.changePassword);
+// @route   PATCH /users/password
+// @desc    Change current logged-in user's password
+// @access  Private (Authenticated User)
+router.patch("/password", auth, changePassword);
 
 module.exports = router;

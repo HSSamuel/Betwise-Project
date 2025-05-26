@@ -1,15 +1,30 @@
 const mongoose = require("mongoose");
-require("dotenv").config();
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI);
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    // Determine MongoDB URI based on environment (test or development/production)
+    const dbUri =
+      process.env.NODE_ENV === "test"
+        ? process.env.MONGODB_TEST_URI // URI for the test database
+        : process.env.MONGODB_URI; // URI for the main database
+
+    // Check if the MongoDB URI is defined
+    if (!dbUri) {
+      console.error("MongoDB URI defined in environment variables.");
+      process.exit(1); // Exit if URI is not found
+    }
+
+    // Connect to MongoDB
+    await mongoose.connect(dbUri);
+
+    // Log successful connection, showing the host for clarity
+    const host = new URL(dbUri).host;
+    console.log(`✅ Connected to MongoDB: ${host}`);
   } catch (err) {
-    console.error(err.message);
+    // Log any connection errors and exit the process
+    console.error("❌ MongoDB connection error:", err.message);
     process.exit(1);
   }
 };
 
 module.exports = connectDB;
-// This code connects to a MongoDB database using Mongoose. It exports a function that attempts to connect to the database using the URI stored in the environment variable MONGO_URI. If the connection is successful, it logs "MongoDB connected" to the console. If there is an error, it logs the error message and exits the process with a status code of 1.

@@ -1,34 +1,146 @@
-# BetWise-Backend-Project
+# BetWise Backend Project
 
-**Objective 5: Sports Betting Platform (BetWise)**
+## 🏟️ Overview
 
-Betting system where users bet on games with virtual funds.
+BetWise is a sports betting backend platform where users can place virtual bets on games, and admins manage game creation and outcomes.
 
-**Main Features:**
+## ✨ Main Features
 
-- Admin creates games and odds
-- Users place bets, view results
-- Payout based on outcomes
+- Admin creates games and sets odds.
+- Users register, log in, and manage wallet balances.
+- Users place bets on available games.
+- System calculates payouts based on game outcomes.
 
-**Milestone 1: User Setup & Game Management**
+## 📈 Milestones
 
-1. Register/login users with wallet balance.
-2. Admin can create games with odds.
-3. User, Game schemas.
+### Milestone 1: User Setup & Game Management
 
-**Milestone 2: Betting Logic**
+- User registration and login.
+- Wallet balance linked to each user.
+- Admin can create games with associated odds.
 
-1. Users place bets on available games.
-2. Create Bet schema.
-3. Deduct stake from wallet and record bet.
+### Milestone 2: Betting Logic
 
-**Endpoints:**
+- Users place bets on games.
+- System deducts stakes from wallet.
+- Bets are recorded and payouts calculated when game results are updated.
 
-- POST /auth/register
-- POST /auth/login
-- POST /games (admin)
-- GET /games
-- POST /bets
-- GET /bets
-- PATCH /games/:id/result
-- GET /wallet
+## 🔌 API Endpoints
+
+| Endpoint                 | Description        |
+| ------------------------ | ------------------ |
+| POST /auth/register      | Register new user  |
+| POST /auth/login         | Log in user        |
+| POST /games (admin)      | Admin creates game |
+| GET /games               | List all games     |
+| POST /bets               | User places a bet  |
+| GET /bets                | Retrieve user bets |
+| PATCH /games/\:id/result | Update game result |
+| GET /wallet              | Get wallet balance |
+
+## 📦 Example API Usage
+
+### Register User
+
+```http
+POST /auth/register
+Content-Type: application/json
+{
+  "username": "johndoe",
+  "email": "john@example.com",
+  "password": "password123"
+}
+```
+
+### Login User
+
+```http
+POST /auth/login
+Content-Type: application/json
+{
+  "email": "john@example.com",
+  "password": "password123"
+}
+```
+
+### Place a Bet
+
+```http
+POST /bets
+Authorization: Bearer <token>
+Content-Type: application/json
+{
+  "gameId": "609d1f5b7b1d3c001f0b2abc",
+  "amount": 50,
+  "prediction": "Team A"
+}
+```
+
+## ⚙️ Setup & Installation
+
+1. **Clone the repository**
+
+   ```bash
+   git clone <repo-url>
+   cd BetWise Backend
+   ```
+
+2. **Install dependencies**
+
+   ```bash
+   npm install
+   ```
+
+3. **Configure environment**
+
+   - Create a `.env` file based on `.env.example` or provided `.env`.
+   - Set up MongoDB connection string and secret keys.
+
+4. **Run the server**
+
+   ```bash
+   npm start
+   ```
+
+## 🧪 Running Tests
+
+```bash
+npm test
+```
+
+## 📥 Postman Collection
+
+A Postman collection is provided for easy API testing.
+
+- Import the `BetWise.postman_collection.json` file into Postman.
+- Contains preconfigured requests for all endpoints.
+
+## 🏗️ Project Structure
+
+```
+/cli            → Command-line tools (admin/user scripts)
+/config         → Database configuration
+/controllers    → Core logic for admin, auth, bets, games, users, wallet
+/middleware     → Authentication middleware
+/models         → Mongoose schemas for User, Game, Bet, Transaction
+/routes         → API route handlers
+/scripts        → Helper scripts (simulate transactions)
+/tests          → Unit tests
+```
+
+## 🛠️ Technologies Used
+
+- Node.js
+- Express.js
+- MongoDB & Mongoose
+- JWT Authentication
+
+## 🕒 Changelog
+
+- **v1.0.0** — Initial backend setup with core betting functionality.
+- **v1.1.0** — Added CLI tools for admin management.
+- **v1.2.0** — Improved test coverage and added wallet transaction simulation.
+
+## 📄 License
+
+This project is licensed under the MIT License.

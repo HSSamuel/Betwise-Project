@@ -9,11 +9,19 @@ const bcrypt = require("bcryptjs");
 let token, user;
 
 beforeAll(async () => {
+  jest.setTimeout(30000); // Increase timeout to 30 seconds for setup phase
+
+  // Log the connection attempt to help debug if needed
+  console.log("Connecting to MongoDB...");
+
   // Connect to a separate test DB (make sure to set this in your .env)
   await mongoose.connect(
     process.env.MONGODB_TEST_URI || process.env.MONGODB_URI
   );
 
+  console.log("Connected to MongoDB");
+
+  // Fetch or create a test user
   user = await User.findOne({ username: "testuser" });
 
   if (!user) {
@@ -26,16 +34,18 @@ beforeAll(async () => {
     await user.save();
   }
 
+  // Generate JWT token for the test user
   token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
     expiresIn: "1d",
   });
 });
 
 afterAll(async () => {
-  // Optionally clean up test user
+  // Clean up after tests
   await User.deleteOne({ username: "testuser" });
   await Transaction.deleteMany({ user: user._id });
 
+  // Disconnect from the database
   await mongoose.disconnect();
 });
 
@@ -71,5 +81,11 @@ describe("Wallet API", () => {
     expect(res.body).toHaveProperty("totalTopups");
     expect(res.body).toHaveProperty("totalBets");
     expect(res.body).toHaveProperty("totalWins");
+  });
+
+  it("should return 401 without token", async () => {
+    const res = await request(app).get("/wallet");
+    expect(res.statusCode).toBe(401);
+    expect(res.body.msg).toMatch(/authorization denied/i);
   });
 });
