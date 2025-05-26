@@ -52,7 +52,7 @@ Content-Type: application/json
 {
   "username": "HSSamuel",
   "email": "smkmayomisamuel@gmail.com",
-  "password": "Iamgreatness@2025"
+  "password": "Iamgreatness123"
 }
 ```
 
