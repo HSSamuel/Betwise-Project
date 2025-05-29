@@ -3,9 +3,7 @@ require("dotenv").config({ path: "../.env" }); // Adjust path to .env if needed
 const mongoose = require("mongoose");
 const User = require("../models/User"); // Adjust path if needed
 
-const dbUri =
-  process.env.MONGODB_URI ||
-  "mongodb+srv://HSSamuel:Iamgreatness12345..@cluster0.6jkfcgy.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"; // Fallback, but .env should work
+const dbUri = process.env.MONGODB_URI;
 
 const usernameToUpdate = process.argv[2];
 const firstName = process.argv[3];

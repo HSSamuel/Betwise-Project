@@ -151,3 +151,49 @@ exports.listUsers = async (req, res) => {
   }
 };
 // Admin: Get user details by ID (excluding password)
+
+// NEW FUNCTION: Admin: Get all users with full details for specific needs
+exports.getAllUsersFullDetails = async (req, res, next) => {
+  try {
+    const allUsers = await User.find({}); // Fetch all users, include password by default
+
+    // Rename 'username' to 'user' to match the screenshot, if desired
+    // and ensure all necessary fields are present as in the screenshot.
+    const formattedUsers = allUsers.map((u) => {
+      const userObject = u.toObject(); // Convert Mongoose document to plain object
+
+      // Match screenshot fields as closely as possible from User model
+      return {
+        _id: userObject._id,
+        role: userObject.role,
+        user: userObject.username, // Mapping 'username' to 'user'
+        email: userObject.email,
+        password: userObject.password, // Included as per requirement
+        firstName: userObject.firstName,
+        lastName: userObject.lastName,
+        state: userObject.state,
+        // 'verified' field is not in the current User.js model.
+        // If you add it to the model, it would be: verified: userObject.verified,
+        createdAt: userObject.createdAt,
+        updatedAt: userObject.updatedAt,
+        __v: userObject.__v,
+      };
+    });
+
+    res.status(200).json({
+      msg: "Successful",
+      allUser: formattedUsers, // Use 'allUser' as the key for the array
+    });
+  } catch (err) {
+    console.error("Error fetching all users full details:", err.message);
+  
+    if (next) {
+      next(err);
+    } else {
+      res
+        .status(500)
+        .json({ msg: "Server error while fetching all users details." });
+    }
+  }
+};
+// Admin: Get user details by ID (excluding password)

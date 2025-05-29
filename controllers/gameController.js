@@ -1,9 +1,13 @@
 const Game = require("../models/Game");
 const Bet = require("../models/Bet");
-const { resolveBets } = require("./betController"); // For resolving bets when a game result is set
+const User = require("../models/User"); // <-- Added for cancelGame
+const Transaction = require("../models/Transaction"); // <-- Added for cancelGame
+const { resolveBets } = require("./betController");
+const mongoose = require("mongoose"); // <-- Added for sessions
 
 // Admin: Create a new game
-exports.createGame = async (req, res) => {
+exports.createGame = async (req, res, next) => {
+  // <-- Added next
   const { homeTeam, awayTeam, odds, league, matchDate, status } = req.body;
 
   // Basic validation for required fields
@@ -22,11 +26,10 @@ exports.createGame = async (req, res) => {
   }
 
   try {
-    // Check if a similar game (same teams, same date) already exists to prevent duplicates
     const existingGame = await Game.findOne({
       homeTeam,
       awayTeam,
-      matchDate: new Date(matchDate).setHours(0, 0, 0, 0), // Compare date part only
+      matchDate: new Date(matchDate).setHours(0, 0, 0, 0),
     });
 
     if (existingGame) {
@@ -41,10 +44,10 @@ exports.createGame = async (req, res) => {
       odds,
       league,
       matchDate,
-      status: status || "upcoming", // Default to upcoming if not provided
+      status: status || "upcoming",
     });
 
-    await game.save(); // Mongoose validation (including same team check) will run here
+    await game.save();
 
     res.status(201).json({
       message: `Match added: ${homeTeam} vs ${awayTeam} on ${new Date(
@@ -53,24 +56,23 @@ exports.createGame = async (req, res) => {
       game,
     });
   } catch (err) {
-    console.error("Error creating game:", err.message);
     if (err.name === "ValidationError") {
+      // For specific client errors like validation, direct response can be clearer
       return res.status(400).json({ msg: err.message });
     }
-    res.status(500).json({ msg: "Server error while creating game." });
+    next(err); // Pass other errors to the centralized handler
   }
 };
 
-// Public: Get all games (with optional filtering/pagination in a real app)
-exports.getGames = async (req, res) => {
+// Public: Get all games
+exports.getGames = async (req, res, next) => {
+  // <-- Added next
   try {
-    // Basic query params for filtering (can be expanded)
     const { league, status, date } = req.query;
     const filter = {};
     if (league) filter.league = league;
     if (status) filter.status = status;
     if (date) {
-      // Filter by specific date (matchDate should be on this day)
       const startDate = new Date(date);
       startDate.setHours(0, 0, 0, 0);
       const endDate = new Date(date);
@@ -78,7 +80,7 @@ exports.getGames = async (req, res) => {
       filter.matchDate = { $gte: startDate, $lte: endDate };
     }
 
-    const games = await Game.find(filter).sort({ matchDate: 1 }); // Sort by match date
+    const games = await Game.find(filter).sort({ matchDate: 1 });
 
     if (!games || games.length === 0) {
       return res
@@ -87,13 +89,13 @@ exports.getGames = async (req, res) => {
     }
     res.json(games);
   } catch (err) {
-    console.error("Error fetching games:", err.message);
-    res.status(500).json({ msg: "Server error while fetching games." });
+    next(err); // Pass errors to the centralized handler
   }
 };
 
 // Public: Get a single game by ID
-exports.getGameById = async (req, res) => {
+exports.getGameById = async (req, res, next) => {
+  // <-- Added next
   try {
     const game = await Game.findById(req.params.id);
     if (!game) {
@@ -101,149 +103,162 @@ exports.getGameById = async (req, res) => {
     }
     res.json(game);
   } catch (err) {
-    console.error("Error fetching game by ID:", err.message);
     if (err.kind === "ObjectId") {
       return res.status(400).json({ msg: "Invalid game ID format." });
     }
-    res.status(500).json({ msg: "Server error while fetching game." });
+    next(err); // Pass other errors to the centralized handler
   }
 };
 
 // Admin: Set the result for a game and process payouts
-exports.setResult = async (req, res) => {
-  const { id } = req.params; // Game ID
-  const { result } = req.body; // Expected result: "A", "B", or "Draw"
+exports.setResult = async (req, res, next) => {
+  // <-- Added next
+  const { id } = req.params;
+  const { result } = req.body;
 
-  // Validate result value
   if (!["A", "B", "Draw"].includes(result)) {
     return res
       .status(400)
       .json({ msg: "Invalid result value. Must be 'A', 'B', or 'Draw'." });
   }
 
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const game = await Game.findById(id);
+    const game = await Game.findById(id).session(session); // <-- Use session
     if (!game) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ msg: "Game not found." });
     }
 
     if (game.result) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         msg: `Game result already set to ${game.result}. Cannot change.`,
       });
     }
-    if (game.status !== "finished" && game.status !== "live") {
-      // Typically result is set after game is finished or live
-      // Allow setting result if game is upcoming, but ideally it should be 'finished'
-      // console.warn(`Setting result for game ${id} which is currently ${game.status}`);
-    }
+    // Optional: Add more checks for game.status if needed, e.g., game must be 'live' or 'upcoming'
 
     game.result = result;
-    game.status = "finished"; // Update game status
-    await game.save();
+    game.status = "finished";
+    await game.save({ session }); // <-- Use session for save
 
     // Resolve bets related to this game (payouts handled in resolveBets)
-    await resolveBets(game);
+    // Ensure resolveBets is adapted to use the session for all its DB operations
+    await resolveBets(game, session); // <-- Pass session
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.json({
       msg: `Result for game ${game.homeTeam} vs ${game.awayTeam} set to '${result}'. Bets are being resolved.`,
       game,
     });
   } catch (err) {
-    console.error("Error setting game result:", err.message);
-    res.status(500).json({ msg: "Server error while setting game result." });
+    await session.abortTransaction();
+    session.endSession();
+    next(err); // Pass error to the centralized handler
   }
 };
 
-// Admin: Update game details (e.g., odds, matchDate, status before it starts)
-exports.updateGame = async (req, res) => {
+// Admin: Update game details
+exports.updateGame = async (req, res, next) => {
+  // <-- Added next
   const { id } = req.params;
-  const updates = req.body; // Contains fields to update: odds, matchDate, status, etc.
+  const updates = req.body;
 
+  // It's generally safer NOT to run updates like odds changes within a transaction
+  // unless absolutely necessary and all side-effects are contained.
+  // For this example, keeping it simple without a transaction.
+  // If this operation had financial implications or multi-document updates, a transaction would be advised.
   try {
     const game = await Game.findById(id);
     if (!game) {
       return res.status(404).json({ msg: "Game not found." });
     }
 
-    // Prevent updates if the game has started or finished, unless it's a result update (handled by setResult)
     if (game.status === "live" || game.status === "finished") {
-      // Allow specific updates like status to 'cancelled' or minor corrections if needed
       if (
         updates.status &&
-        updates.status !== "cancelled" &&
+        updates.status !== "cancelled" && // Allow update to 'cancelled'
         Object.keys(updates).length > 1
       ) {
         return res.status(400).json({
-          msg: "Cannot update game details for live or finished games, except for cancellation.",
+          msg: "Cannot update most game details for live or finished games, except for cancellation.",
         });
       }
     }
     if (
       updates.matchDate &&
       new Date(updates.matchDate) < new Date() &&
-      game.status === "upcoming"
+      game.status === "upcoming" // Only a concern if changing date of an upcoming game to past
     ) {
       return res.status(400).json({
         msg: "Match date cannot be set to the past for an upcoming game.",
       });
     }
 
-    // Update allowed fields
     Object.keys(updates).forEach((key) => {
       if (key === "odds" && typeof updates.odds === "object") {
         game.odds = { ...game.odds, ...updates.odds };
       } else if (key !== "_id") {
-        // Prevent _id from being updated
         game[key] = updates[key];
       }
     });
 
-    await game.save(); // Mongoose validation will run
+    await game.save();
     res.json({ msg: "Game updated successfully.", game });
   } catch (err) {
-    console.error("Error updating game:", err.message);
     if (err.name === "ValidationError") {
       return res.status(400).json({ msg: err.message });
     }
-    res.status(500).json({ msg: "Server error while updating game." });
+    next(err); // Pass other errors to the centralized handler
   }
 };
 
 // Admin: Cancel a game
-exports.cancelGame = async (req, res) => {
+exports.cancelGame = async (req, res, next) => {
+  // <-- Added next
   const { id } = req.params;
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const game = await Game.findById(id);
+    const game = await Game.findById(id).session(session); // <-- Use session
     if (!game) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ msg: "Game not found." });
     }
 
     if (game.status === "finished" && game.result) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         msg: "Cannot cancel a game that has already finished and has a result.",
       });
     }
 
-    // If game is cancelled, update its status and refund all bets placed on it.
     if (game.status !== "cancelled") {
       game.status = "cancelled";
-      game.result = null; // Ensure no result if cancelled
-      await game.save();
+      game.result = null;
+      await game.save({ session }); // <-- Use session
 
-      // Find all bets for this game
       const betsToRefund = await Bet.find({
         game: game._id,
-        status: "pending",
-      });
+        status: "pending", // Only refund pending bets
+      }).session(session); // <-- Use session
 
       for (const bet of betsToRefund) {
-        const user = await User.findById(bet.user);
+        const user = await User.findById(bet.user).session(session); // <-- Use session
         if (user) {
-          user.walletBalance += bet.stake; // Refund the stake
-          await user.save();
+          user.walletBalance += bet.stake;
+          await user.save({ session }); // <-- Use session
 
-          // Log the refund transaction
           await new Transaction({
             user: user._id,
             type: "refund",
@@ -252,21 +267,27 @@ exports.cancelGame = async (req, res) => {
             bet: bet._id,
             game: game._id,
             description: `Refund for cancelled game: ${game.homeTeam} vs ${game.awayTeam}`,
-          }).save();
+          }).save({ session }); // <-- Use session
         }
-        bet.status = "cancelled"; // Update bet status
-        await bet.save();
+        bet.status = "cancelled";
+        await bet.save({ session }); // <-- Use session
       }
+
+      await session.commitTransaction();
+      session.endSession();
+
       res.json({
         msg: `Game ${game.homeTeam} vs ${game.awayTeam} cancelled. All pending bets refunded.`,
         game,
       });
     } else {
+      // If already cancelled, no need to abort transaction if no DB operations were attempted before this check.
+      session.endSession(); // Just end the session if no transaction started or if it's already aborted.
       res.status(400).json({ msg: "Game is already cancelled." });
     }
   } catch (err) {
-    console.error("Error cancelling game:", err.message);
-    res.status(500).json({ msg: "Server error while cancelling game." });
+    await session.abortTransaction();
+    session.endSession();
+    next(err); // Pass error to the centralized handler
   }
 };
-// Admin: Delete a game (only if it hasn't started yet)

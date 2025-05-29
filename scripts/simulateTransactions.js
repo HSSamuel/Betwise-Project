@@ -4,9 +4,7 @@ const bcrypt = require("bcrypt");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 
-const dbUri =
-  process.env.MONGODB_URI ||
-  "mongodb+srv://HSSamuel:Iamgreatness12345..@cluster0.6jkfcgy.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const dbUri = process.env.MONGODB_URI;
 
 async function run() {
   try {

@@ -1,8 +1,12 @@
 <<<<<<< HEAD
+
 # BetWise Backend Project
+
 =======
+
 # BetWise-Backend-Project-Milestone-Two
->>>>>>> 10297523b345583a35bacc8d491f1522ff443241
+
+> > > > > > > 10297523b345583a35bacc8d491f1522ff443241
 
 ## 🏟️ Overview
 
@@ -29,6 +33,12 @@ BetWise is a sports betting backend platform where users can place virtual bets 
 - System deducts stakes from wallet.
 - Bets are recorded and payouts calculated when game results are updated.
 
+### Milestone 3: Results and Payouts
+
+- Admin set game results.
+- Calculate payouts and update wallets.
+- GET endpoints for viewing bet history and results.
+
 ## 🔌 API Endpoints
 
 | Endpoint                 | Description        |
@@ -43,42 +53,6 @@ BetWise is a sports betting backend platform where users can place virtual bets 
 | GET /wallet              | Get wallet balance |
 
 ## 📦 Example API Usage
-
-### Register User
-
-```http
-POST /auth/register
-Content-Type: application/json
-{
-  "username": "johndoe",
-  "email": "john@example.com",
-  "password": "password123"
-}
-```
-
-### Login User
-
-```http
-POST /auth/login
-Content-Type: application/json
-{
-  "email": "john@example.com",
-  "password": "password123"
-}
-```
-
-### Place a Bet
-
-```http
-POST /bets
-Authorization: Bearer <token>
-Content-Type: application/json
-{
-  "gameId": "609d1f5b7b1d3c001f0b2abc",
-  "amount": 50,
-  "prediction": "Team A"
-}
-```
 
 ## ⚙️ Setup & Installation
 

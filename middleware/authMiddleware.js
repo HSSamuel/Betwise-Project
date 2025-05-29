@@ -7,11 +7,9 @@ exports.auth = async (req, res, next) => {
 
   // Check if Authorization header is present and correctly formatted
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res
-      .status(401)
-      .json({
-        msg: "No token, authorization denied. Please include a Bearer token.",
-      });
+    return res.status(401).json({
+      msg: "No token, authorization denied. Please include a Bearer token.",
+    });
   }
 
   const token = authHeader.replace("Bearer ", ""); // Extract token
