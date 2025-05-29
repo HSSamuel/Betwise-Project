@@ -4,9 +4,7 @@
 
 =======
 
-# BetWise-Backend-Project-Milestone-Two
-
-> > > > > > > 10297523b345583a35bacc8d491f1522ff443241
+# BetWise-Project-Milestone-Three
 
 ## 🏟️ Overview
 
@@ -54,48 +52,8 @@ BetWise is a sports betting backend platform where users can place virtual bets 
 
 ## 📦 Example API Usage
 
-<<<<<<< HEAD
-=======
-### Register User
+# <<<<<<< HEAD
 
-```http
-POST /auth/register
-Content-Type: application/json
-{
-  "username": "HSSamuel",
-  "email": "smkmayomisamuel@gmail.com",
-  "password": "Iamgreatness123"
-}
-```
-
-### Login User
-
-```http
-POST /auth/login
-Content-Type: application/json
-{
-    "email": "smkmayomisamuel@gmail.com", 
-    "password": "Iamgreatness123",  
-    "username": "HSSamuel",  
-    "firstName": "Semako",   
-    "lastName": "Hunsa",     
-    "state": "Lagos"      
-}
-
-### Place a Bet
-
-```http
-POST /bets
-Authorization: Bearer <token>
-Content-Type: application/json
-{
-  "gameId": "609d1f5b7b1d3c001f0b2abc",
-  "amount": 50,
-  "prediction": "Team A"
-}
-```
-
->>>>>>> e8208a9e13c045b5f60467017f4d59192ca6835a
 ## ⚙️ Setup & Installation
 
 1. **Clone the repository**
@@ -127,6 +85,7 @@ Content-Type: application/json
 ```bash
  npm start or npm run dev
 ```
+
 ## 🏗️ Project Structure
 
 ```
@@ -146,6 +105,7 @@ Content-Type: application/json
 - Express.js
 - MongoDB & Mongoose
 - JWT Authentication
+- Nodemailer (Gmail)
 
 ## 🕒 Changelog
 
