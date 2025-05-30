@@ -33,22 +33,82 @@ BetWise is a sports betting backend platform where users can place virtual bets 
 
 ## 🔌 API Endpoints
 
-| Endpoint                 | Description        |
-| ------------------------ | ------------------ |
-| POST /auth/register      | Register new user  |
-| POST /auth/login         | Log in user        |
-| POST /games (admin)      | Admin creates game |
-| GET /games               | List all games     |
-| POST /bets               | User places a bet  |
-| GET /bets                | Retrieve user bets |
+| Endpoint                | Description        |
+| ----------------------- | ------------------ |
+| POST /auth/register     | Register new user  |
+| POST /auth/login        | Log in user        |
+| POST /games (admin)     | Admin creates game |
+| GET /games              | List all games     |
+| POST /bets              | User places a bet  |
+| GET /bets               | Retrieve user bets |
 | PATCH /games/:id/result | Update game result |
-| GET /wallet              | Get wallet balance |
+| GET /wallet             | Get wallet balance |
 
 ## 📦 Example API Usage
 
-*(This section can be filled with examples of how to use the API endpoints, e.g., using curl or Postman.)*
+For security purpose, I rather provided few examples of how to interact with the API using `curl`.
 
-## ⚙️ Setup & Installation
+### 1. Register a New User
+
+Registers a new user in the system.
+
+````bash
+curl -X POST http://localhost:5000/auth/register \
+-H "Content-Type: application/json" \
+-d '{
+      "username": "newuser",
+      "email": "newuser@example.com",
+      "password": "password123",
+      "firstName": "New",
+      "lastName": "User",
+      "state": "Lagos"
+    }'
+
+2. Log In User
+Authenticates a user and returns an access token and refresh token.
+
+curl -X POST http://localhost:5000/auth/login \
+-H "Content-Type: application/json" \
+-d '{
+      "email": "newuser@example.com",
+      "password": "password123"
+    }'
+
+3. Admin: Create a New Game
+Allows an admin to create a new game. Replace <ADMIN_JWT_TOKEN> with a valid admin token.
+
+Bash
+
+curl -X POST http://localhost:5000/games \
+-H "Content-Type: application/json" \
+-H "Authorization: Bearer <ADMIN_JWT_TOKEN>" \
+-d '{
+      "homeTeam": "Team Alpha",
+      "awayTeam": "Team Beta",
+      "odds": {
+        "home": 1.75,
+        "away": 3.50,
+        "draw": 2.25
+      },
+      "league": "Premier League",
+      "matchDate": "2025-09-15T18:00:00.000Z"
+    }'
+
+4. User: Place a Bet
+Allows an authenticated user to place a bet on an existing game. Replace <USER_JWT_TOKEN> with a valid user token and ensure gameId is a valid ID of an existing game.
+
+Bash
+
+curl -X POST http://localhost:5000/bets \
+-H "Content-Type: application/json" \
+-H "Authorization: Bearer <USER_JWT_TOKEN>" \
+-d '{
+      "gameId": "GAME_ID_HERE",
+      "outcome": "A",
+      "stake": 100
+    }'
+
+**⚙️ Setup & Installation**
 
 1.  **Clone the repository**
 
@@ -118,3 +178,4 @@ v1.2.0 — Improved test coverage and added wallet transaction simulation.
 
 **📄 Author**
 Created by HUNSA, S. Samuel
+````
