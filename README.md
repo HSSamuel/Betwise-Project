@@ -1,10 +1,4 @@
-<<<<<<< HEAD
-
 # BetWise Backend Project
-
-=======
-
-# BetWise-Project-Milestone-Three
 
 ## 🏟️ Overview
 
@@ -47,72 +41,80 @@ BetWise is a sports betting backend platform where users can place virtual bets 
 | GET /games               | List all games     |
 | POST /bets               | User places a bet  |
 | GET /bets                | Retrieve user bets |
-| PATCH /games/\:id/result | Update game result |
+| PATCH /games/:id/result | Update game result |
 | GET /wallet              | Get wallet balance |
 
 ## 📦 Example API Usage
 
-# <<<<<<< HEAD
+*(This section can be filled with examples of how to use the API endpoints, e.g., using curl or Postman.)*
 
 ## ⚙️ Setup & Installation
 
-1. **Clone the repository**
+1.  **Clone the repository**
 
-   ```bash
-   git clone <repo-url>
-   cd BetWise Backend
-   ```
+    ```bash
+    git clone <repo-url>
+    cd BetWise Backend
+    ```
 
-2. **Install dependencies**
+2.  **Install dependencies**
 
-   ```bash
-   npm install
-   ```
+    ```bash
+    npm install
+    ```
 
-3. **Configure environment**
+3.  **Configure environment**
 
-   - I created a `.env` file based on `.env.example`.
-   - Set up MongoDB connection string and secret keys.
+    - Create a `.env` file in the root directory (.env.example provided).
+    - Set up your MongoDB connection string (`MONGODB_URI` and `MONGODB_TEST_URI`), JWT secrets (`JWT_SECRET`, `JWT_REFRESH_SECRET`), and any other required environment variables (like email credentials for Nodemailer).
 
-4. **Run the server**
+4.  **Run the server**
 
-   ```bash
-   npm start or npm run dev
-   ```
+    ```bash
+    npm start
+    ```
+
+    For development with automatic restarts:
+
+    ```bash
+    npm run dev
+    ```
 
 ## 🧪 Running Tests
 
+To run the automated tests:
+
 ```bash
- npm start or npm run dev
-```
+npm test
 
-## 🏗️ Project Structure
-
-```
+**🏗️ Project Structure**
 /cli            → Command-line tools (admin/user scripts)
-/config         → Database configuration
+/config         → Database configuration (e.g., db.js)
 /controllers    → Core logic for admin, auth, bets, games, users, wallet
-/middleware     → Authentication middleware
+/middleware     → Authentication middleware (e.g., authMiddleware.js)
 /models         → Mongoose schemas for User, Game, Bet, Transaction
 /routes         → API route handlers
-/scripts        → Helper scripts (simulate transactions)
-/tests          → Unit tests
-```
+/scripts        → Helper scripts (e.g., simulateTransactions.js)
+/tests          → Unit and integration tests (e.g., wallet.test.js)
+index.js        → Main application entry point
+.env            → Environment variables (ignored by Git)
+.gitignore      → Specifies intentionally untracked files that Git should ignore
+package.json    → Project metadata and dependencies
+README.md       → This file
 
-## 🛠️ Technologies Used
+**🛠️ Technologies Used**
+Node.js
+Express.js
+MongoDB & Mongoose
+JSON Web Tokens (JWT) for Authentication
+bcryptjs for password hashing
+Nodemailer (e.g., for email verification, password resets)
+Jest & Supertest for testing
 
-- Node.js
-- Express.js
-- MongoDB & Mongoose
-- JWT Authentication
-- Nodemailer (Gmail)
+**🕒 Changelog**
+v1.0.0 — Initial backend setup with core betting functionality.
+v1.1.0 — Added CLI tools for admin management.
+v1.2.0 — Improved test coverage and added wallet transaction simulation.
 
-## 🕒 Changelog
-
-- **v1.0.0** — Initial backend setup with core betting functionality.
-- **v1.1.0** — Added CLI tools for admin management.
-- **v1.2.0** — Improved test coverage and added wallet transaction simulation.
-
-## 📄 Author
-
+**📄 Author**
 Created by HUNSA, S. Samuel
