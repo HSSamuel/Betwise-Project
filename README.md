@@ -168,7 +168,7 @@ Express.js
 MongoDB & Mongoose
 JSON Web Tokens (JWT) for Authentication
 bcryptjs for password hashing
-Nodemailer (e.g., for email verification, password resets)
+Nodemailer (e.g., for gmail verification, password resets)
 Jest & Supertest for testing
 
 **🕒 Changelog**
