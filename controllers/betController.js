@@ -1,57 +1,75 @@
+const { body, query, validationResult } = require("express-validator");
+const mongoose = require("mongoose");
 const Bet = require("../models/Bet");
 const Game = require("../models/Game");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
-const mongoose = require("mongoose"); // <-- Add mongoose for session
+
+// --- Validation Rules ---
+exports.validatePlaceBet = [
+  body("gameId").isMongoId().withMessage("Valid gameId is required."),
+  body("outcome")
+    .isIn(["A", "B", "Draw"])
+    .withMessage("Outcome must be 'A', 'B', or 'Draw'."),
+  body("stake")
+    .isFloat({ gt: 0 })
+    .withMessage("Stake must be a positive number.")
+    .toFloat(),
+];
+
+exports.validateGetUserBets = [
+  query("status")
+    .optional()
+    .isIn(["pending", "won", "lost", "cancelled"])
+    .withMessage("Invalid bet status."),
+  query("gameId").optional().isMongoId().withMessage("Invalid gameId format."),
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Page must be a positive integer.")
+    .toInt(),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Limit must be an integer between 1 and 100.")
+    .toInt(),
+];
 
 // User: Place a new bet
 exports.placeBet = async (req, res, next) => {
-  // <-- Added next for error handling
-  let { gameId, outcome, stake } = req.body;
-  const userId = req.user.id; // From auth middleware
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
-  const session = await mongoose.startSession(); // <-- Start session
-  session.startTransaction(); // <-- Start transaction
+  let { gameId, outcome, stake } = req.body; // stake is already a float due to validation
+  const userId = req.user.id;
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
-    stake = Number(stake);
+    // Input validation is now handled by express-validator
+    // stake = Number(stake); // Already handled by toFloat()
 
-    // --- Input Validation ---
-    if (!gameId || !outcome || !stake) {
-      await session.abortTransaction();
-      session.endSession(); // Abort and end session
-      return res
-        .status(400)
-        .json({ msg: "Missing required fields: gameId, outcome, stake." }); //
-    }
-    if (!["A", "B", "Draw"].includes(outcome)) {
-      await session.abortTransaction();
-      session.endSession();
-      return res
-        .status(400)
-        .json({ msg: "Invalid outcome. Must be 'A', 'B', or 'Draw'." }); //
-    }
-    if (isNaN(stake) || stake <= 0) {
-      await session.abortTransaction();
-      session.endSession();
-      return res
-        .status(400)
-        .json({ msg: "Invalid stake amount. Must be a positive number." }); //
-    }
-
-    // Fetch user and game details (use session for user if it's going to be saved)
-    const user = await User.findById(userId).session(session); // <-- Use session for user document
+    const user = await User.findById(userId).session(session);
     if (!user) {
+      // This should ideally not happen if auth middleware is correct and user exists
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json({ msg: "User not found." }); //
+      // Create a new error object for better stack trace and consistency
+      const err = new Error("User not found.");
+      err.statusCode = 404;
+      return next(err);
     }
 
-    const game = await Game.findById(gameId).session(session); // Can use session here too if game state is critical for the transaction
+    const game = await Game.findById(gameId).session(session);
     if (!game) {
       await session.abortTransaction();
       session.endSession();
-      return res.status(404).json({ msg: "Game not found." }); //
+      const err = new Error("Game not found.");
+      err.statusCode = 404;
+      return next(err);
     }
 
     // --- Business Logic Checks ---
@@ -60,180 +78,182 @@ exports.placeBet = async (req, res, next) => {
       game.status === "finished" ||
       game.status === "cancelled"
     ) {
-      //
       await session.abortTransaction();
       session.endSession();
-      return res
-        .status(400)
-        .json({
-          msg: "Betting is closed for this game (game has finished, has a result, or is cancelled).",
-        }); //
+      const err = new Error(
+        "Betting is closed for this game (game has finished, has a result, or is cancelled)."
+      );
+      err.statusCode = 400;
+      return next(err);
     }
-    if (new Date(game.matchDate) < new Date()) {
-      //
+    // Check if matchDate is valid and in the future
+    const matchDateTime = new Date(game.matchDate).getTime();
+    if (isNaN(matchDateTime) || matchDateTime < Date.now()) {
       await session.abortTransaction();
       session.endSession();
-      return res
-        .status(400)
-        .json({
-          msg: "Betting is closed for this game (match has already started or passed).",
-        }); //
+      const err = new Error(
+        "Betting is closed for this game (match has already started or passed)."
+      );
+      err.statusCode = 400;
+      return next(err);
     }
     if (user.walletBalance < stake) {
-      //
       await session.abortTransaction();
       session.endSession();
-      return res
-        .status(400)
-        .json({ msg: "Insufficient funds in your wallet." }); //
+      const err = new Error("Insufficient funds in your wallet.");
+      err.statusCode = 400;
+      return next(err);
     }
 
-    // Deduct stake and update wallet balance
-    user.walletBalance -= stake; //
-    await user.save({ session }); // <-- Pass session to save operation
+    user.walletBalance -= stake;
+    user.walletBalance = parseFloat(user.walletBalance.toFixed(2)); // Ensure precision
+    await user.save({ session });
 
-    // Create a new bet entry
     const bet = new Bet({
       user: userId,
       game: gameId,
       outcome,
       stake,
-      status: "pending", // Initial status
-      payout: 0, // Initial payout
+      status: "pending",
+      payout: 0,
     });
-    await bet.save({ session }); // <-- Pass session
+    await bet.save({ session });
 
-    // Log the transaction for the bet
     await new Transaction({
       user: user._id,
-      type: "bet", //
-      amount: -stake, // Negative amount for debit
-      balanceAfter: user.walletBalance, //
-      bet: bet._id, //
-      game: game._id, //
-      description: `Bet on ${game.homeTeam} vs ${game.awayTeam}`, //
-    }).save({ session }); // <-- Pass session
+      type: "bet",
+      amount: -stake,
+      balanceAfter: user.walletBalance,
+      bet: bet._id,
+      game: game._id,
+      description: `Bet on ${game.homeTeam} vs ${game.awayTeam}`,
+    }).save({ session });
 
-    await session.commitTransaction(); // <-- Commit transaction
-    session.endSession(); // <-- End session
+    await session.commitTransaction();
+    session.endSession();
 
     res.status(201).json({
-      msg: "Bet placed successfully!", //
+      msg: "Bet placed successfully!",
       bet,
       walletBalance: user.walletBalance,
     });
-  } catch (err) {
-    await session.abortTransaction(); // <-- Abort on error
-    session.endSession(); // <-- End session
-    // console.error("Error placing bet:", err.message); // Logged by centralized handler
-    // res.status(500).json({ msg: "Server error while placing bet." }); // Handled by centralized handler
-    next(err); // Pass error to centralized handler
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    next(error); // Pass error to centralized handler
   }
 };
 
-// ... (getUserBets remains similar, but can also use next for error handling)
+// User: Get their bets
 exports.getUserBets = async (req, res, next) => {
-  // <-- Added next
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
     const { status, gameId } = req.query;
-    const filter = { user: req.user.id }; //
-    if (status) filter.status = status; //
-    if (gameId) filter.game = gameId; //
+    const page = req.query.page || 1; // Already validated and toInt-ed
+    const limit = req.query.limit || 10; // Already validated and toInt-ed
+    const skip = (page - 1) * limit;
+
+    const filter = { user: req.user.id };
+    if (status) filter.status = status;
+    if (gameId) filter.game = gameId;
 
     const bets = await Bet.find(filter)
       .populate({
-        path: "game", //
-        select: "homeTeam awayTeam matchDate league result status odds", // Select specific fields from Game
+        path: "game",
+        select: "homeTeam awayTeam matchDate league result status odds",
       })
-      .sort({ createdAt: -1 }); // Newest bets first
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip)
+      .lean();
 
-    if (!bets || bets.length === 0) {
-      return res.status(404).json({ msg: "No bets found." }); //
-    }
-    // ... (rest of the formatting logic)
-    const formattedBets = bets.map((bet) => ({
-      /* ... */
-    })); //
-    res.json(formattedBets);
-  } catch (err) {
-    // console.error("Error getting user bets:", err.message); //
-    next(err); // Pass error to centralized handler
+    const totalBets = await Bet.countDocuments(filter);
+
+    res.json({
+      bets,
+      currentPage: page,
+      totalPages: Math.ceil(totalBets / limit),
+      totalCount: totalBets,
+    });
+  } catch (error) {
+    next(error);
   }
 };
 
 // System/Admin: Resolve all bets after a game result is set
-// This function is typically called internally by gameController.setResult
-// For atomicity here, the session would need to be passed from gameController.setResult
-// or this function itself would need to manage a new transaction if called independently.
-// Assuming it's called from gameController.setResult, which will manage the transaction.
 exports.resolveBets = async (game, session) => {
-  // <-- Accept session as parameter
   if (!game || !game.result) {
-    //
-    console.error(
-      "Attempted to resolve bets for a game without a result or invalid game object."
-    ); //
-    // If this function manages its own transaction, it would abort here.
-    // If part of a larger transaction, this error should be propagated up.
-    throw new Error("Cannot resolve bets: Game object or result is invalid.");
+    // console.error("Attempted to resolve bets for a game without a result or invalid game object."); // Use logger
+    throw new Error(
+      "Cannot resolve bets: Game object or result is invalid for resolution."
+    );
+  }
+  if (!game.odds) {
+    // console.error(`Game ${game._id} is missing odds information. Cannot calculate payouts accurately.`); // Use logger
+    throw new Error(
+      `Game ${game._id} (${game.homeTeam} vs ${game.awayTeam}) is missing odds. Cannot calculate payouts.`
+    );
   }
 
   try {
     const betsToResolve = await Bet.find({ game: game._id, status: "pending" })
       .populate("user")
-      .session(session); // <-- Use session
+      .session(session);
 
     for (let bet of betsToResolve) {
-      let payout = 0; //
-      let won = false; //
+      let payout = 0;
+      let won = false;
 
       if (bet.outcome === game.result) {
-        //
         won = true;
-        if (game.result === "A" && game.odds.home)
-          payout = bet.stake * game.odds.home; //
+        let oddValue = 0;
+        if (game.result === "A" && game.odds.home) oddValue = game.odds.home;
         else if (game.result === "B" && game.odds.away)
-          payout = bet.stake * game.odds.away; //
+          oddValue = game.odds.away;
         else if (game.result === "Draw" && game.odds.draw)
-          payout = bet.stake * game.odds.draw; //
-        else {
-          console.warn(
-            `Could not calculate payout for bet ${bet._id} - game odds missing for result ${game.result}`
-          ); //
-          payout = bet.stake; // Fallback: return stake
+          oddValue = game.odds.draw;
+
+        if (oddValue > 0) {
+          payout = bet.stake * oddValue;
+        } else {
+          // This case should be rare if odds are guaranteed by game creation/update logic for all outcomes.
+          // console.warn( // Use logger
+          //  `Odds for winning outcome '${game.result}' not found for game ${game._id}. Refunding stake for bet ${bet._id}.`
+          // );
+          payout = bet.stake; // Fallback: Refund stake if specific odd is missing (e.g. odds object exists but not game.odds.home)
         }
       }
 
-      bet.payout = won ? parseFloat(payout.toFixed(2)) : 0; //
-      bet.status = won ? "won" : "lost"; //
-      await bet.save({ session }); // <-- Use session
+      bet.payout = parseFloat(payout.toFixed(2)); // Ensure precision
+      bet.status = won ? "won" : "lost";
+      await bet.save({ session });
 
       if (won && bet.user) {
-        bet.user.walletBalance += bet.payout; //
-        await bet.user.save({ session }); // <-- Use session
+        bet.user.walletBalance += bet.payout;
+        bet.user.walletBalance = parseFloat(bet.user.walletBalance.toFixed(2)); // Ensure precision
+        await bet.user.save({ session });
 
         await new Transaction({
           user: bet.user._id,
-          type: "win", //
-          amount: bet.payout, //
-          balanceAfter: bet.user.walletBalance, //
-          bet: bet._id, //
-          game: game._id, //
-          description: `Win from bet on ${game.homeTeam} vs ${game.awayTeam}`, //
-        }).save({ session }); // <-- Use session
-        console.log(
-          `User ${bet.user.username} won ${bet.payout} from bet ${bet._id}. New balance: ${bet.user.walletBalance}`
-        ); //
+          type: "win",
+          amount: bet.payout,
+          balanceAfter: bet.user.walletBalance,
+          bet: bet._id,
+          game: game._id,
+          description: `Win from bet on ${game.homeTeam} vs ${game.awayTeam}`,
+        }).save({ session });
+        // console.log(`User ${bet.user.username} won ${bet.payout} from bet ${bet._id}. Balance: ${bet.user.walletBalance}`); // Use logger
       } else if (!won) {
-        console.log(`Bet ${bet._id} for game ${game._id} was lost.`); //
+        // console.log(`Bet ${bet._id} for game ${game._id} lost.`); // Use logger
       }
     }
-    console.log(
-      `Resolved ${betsToResolve.length} bets for game ${game._id} (${game.homeTeam} vs ${game.awayTeam}).`
-    ); //
-  } catch (err) {
-    console.error(`Error resolving bets for game ${game._id}:`, err.message); //
-    // This error should be propagated to the calling function (setResult) to handle the transaction.
-    throw err; // Re-throw to be caught by the caller's transaction logic
+    // console.log(`Resolved ${betsToResolve.length} bets for game ${game._id}.`); // Use logger
+  } catch (error) {
+    // console.error(`Error resolving bets for game ${game._id}:`, error.message); // Use logger
+    throw error; // Re-throw to be caught by the caller's transaction logic
   }
 };

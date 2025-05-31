@@ -1,121 +1,162 @@
-const User = require("../models/User");
+const { body, validationResult } = require("express-validator");
 const bcrypt = require("bcryptjs");
-const Bet = require("../models/Bet"); // For fetching user's betting summary
-const Transaction = require("../models/Transaction"); // For fetching user's transaction summary
+const User = require("../models/User");
+// const Bet = require("../models/Bet"); // Removed if not used
+// const Transaction = require("../models/Transaction"); // Removed if not used
+
+// --- Validation Rules ---
+exports.validateChangeEmail = [
+  body("newEmail")
+    .isEmail()
+    .withMessage("Please provide a valid new email address.")
+    .normalizeEmail(),
+  body("currentPassword")
+    .notEmpty()
+    .withMessage("Current password is required."),
+];
+
+exports.validateChangePassword = [
+  body("currentPassword")
+    .notEmpty()
+    .withMessage("Current password is required."),
+  body("newPassword")
+    .isLength({ min: 6 })
+    .withMessage("New password must be at least 6 characters long."),
+  // Optional: Add custom password complexity rules here if desired
+  // .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/)
+  // .withMessage('Password must be at least 8 characters long and include uppercase, lowercase, and a number.'),
+  body("confirmNewPassword").custom((value, { req }) => {
+    if (value !== req.body.newPassword) {
+      throw new Error("New password and confirmation password do not match.");
+    }
+    return true;
+  }),
+];
 
 // Get current user's profile
-exports.getProfile = async (req, res) => {
+exports.getProfile = async (req, res, next) => {
   try {
-    // req.user is populated by auth middleware and password is already excluded
-    const user = await User.findById(req.user.id).select("-password");
+    // req.user is populated by auth middleware.
+    // Password should already be excluded by auth middleware if .select('-password') was used there.
+    // Or, it is excluded by default if select: false in User model schema.
+    // However, re-selecting here ensures it if not handled elsewhere.
+    const user = await User.findById(req.user.id).select("-password").lean(); // Use lean for performance
     if (!user) {
-      return res.status(404).json({ msg: "User not found." });
+      const err = new Error("User profile not found.");
+      err.statusCode = 404;
+      return next(err);
     }
     res.json(user);
-  } catch (err) {
-    console.error("Error fetching profile:", err.message);
-    res.status(500).json({ msg: "Server error while fetching profile." });
+  } catch (error) {
+    next(error);
   }
 };
 
 // Change current user's email
-exports.changeEmail = async (req, res) => {
-  const { newEmail, currentPassword } = req.body; // Require current password to change email for security
-
-  if (!newEmail || !currentPassword) {
-    return res
-      .status(400)
-      .json({ msg: "New email and current password are required." });
+exports.changeEmail = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
   }
 
-  const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
-  if (!emailRegex.test(newEmail)) {
-    return res.status(400).json({ msg: "Invalid email format." });
-  }
+  const { newEmail, currentPassword } = req.body; // newEmail is already normalized
 
   try {
-    const user = await User.findById(req.user.id); // Fetch user with password
+    const user = await User.findById(req.user.id); // Need full document to compare password
     if (!user) {
-      return res.status(404).json({ msg: "User not found." });
+      const err = new Error("User not found."); // Should be rare if token is valid
+      err.statusCode = 404;
+      return next(err);
     }
 
-    // Verify current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
-      return res.status(400).json({ msg: "Incorrect current password." });
+      const err = new Error("Incorrect current password provided.");
+      err.statusCode = 401; // Unauthorized
+      return next(err);
     }
 
-    // Check if the new email is already in use by another user
-    if (newEmail.toLowerCase() === user.email.toLowerCase()) {
-      return res
-        .status(400)
-        .json({ msg: "New email cannot be the same as the current email." });
-    }
-    const emailExists = await User.findOne({ email: newEmail.toLowerCase() });
-    if (emailExists) {
-      return res
-        .status(400)
-        .json({ msg: "This email address is already in use." });
+    if (newEmail === user.email) {
+      // user.email should be consistently lowercase from registration/updates
+      const err = new Error(
+        "New email cannot be the same as the current email."
+      );
+      err.statusCode = 400;
+      return next(err);
     }
 
-    user.email = newEmail.toLowerCase();
+    // Check if the new email is already in use by ANOTHER user
+    const emailExists = await User.findOne({ email: newEmail });
+    if (emailExists && emailExists._id.toString() !== user._id.toString()) {
+      const err = new Error(
+        "This email address is already in use by another account."
+      );
+      err.statusCode = 400; // Conflict or Bad Request
+      return next(err);
+    }
+
+    user.email = newEmail; // newEmail is already lowercased by normalizeEmail()
     await user.save();
 
     res.json({ msg: "Email updated successfully." });
-  } catch (err) {
-    console.error("Error changing email:", err.message);
-    if (err.code === 11000) {
-      // Mongoose duplicate key error for email
-      return res
-        .status(400)
-        .json({ msg: "This email address is already in use." });
+  } catch (error) {
+    // Handle potential race condition for unique email index (though less likely with prior checks)
+    if (error.code === 11000) {
+      const customError = new Error("This email address is already in use.");
+      customError.statusCode = 400;
+      return next(customError);
     }
-    res.status(500).json({ msg: "Server error while changing email." });
+    next(error);
   }
 };
 
 // Change current user's password
-exports.changePassword = async (req, res) => {
-  const { currentPassword, newPassword, confirmNewPassword } = req.body;
+exports.changePassword = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
-  if (!currentPassword || !newPassword || !confirmNewPassword) {
-    return res
-      .status(400)
-      .json({
-        msg: "Current password, new password, and confirmation are required.",
-      });
-  }
-  if (newPassword !== confirmNewPassword) {
-    return res
-      .status(400)
-      .json({ msg: "New password and confirmation password do not match." });
-  }
-  if (newPassword.length < 6) {
-    return res
-      .status(400)
-      .json({ msg: "New password must be at least 6 characters long." });
-  }
-  // Optional: Add password complexity check for newPassword here
+  const { currentPassword, newPassword } = req.body; // confirmNewPassword used in validator
 
   try {
-    const user = await User.findById(req.user.id); // Fetch user with password
+    const user = await User.findById(req.user.id);
     if (!user) {
-      return res.status(404).json({ msg: "User not found." });
+      const err = new Error("User not found.");
+      err.statusCode = 404;
+      return next(err);
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ msg: "Incorrect current password." });
+    const isCurrentPasswordMatch = await bcrypt.compare(
+      currentPassword,
+      user.password
+    );
+    if (!isCurrentPasswordMatch) {
+      const err = new Error("Incorrect current password.");
+      err.statusCode = 401; // Unauthorized
+      return next(err);
     }
 
-    // Hash the new password
+    // Check if new password is the same as the old one
+    const isNewPasswordSameAsOld = await bcrypt.compare(
+      newPassword,
+      user.password
+    );
+    if (isNewPasswordSameAsOld) {
+      const err = new Error(
+        "New password cannot be the same as the current password."
+      );
+      err.statusCode = 400;
+      return next(err);
+    }
+
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
+    // user.passwordChangedAt = Date.now(); // Optional: for security logging or invalidating old tokens
     await user.save();
 
     res.json({ msg: "Password updated successfully." });
-  } catch (err) {
-    console.error("Error changing password:", err.message);
-    res.status(500).json({ msg: "Server error while changing password." });
+  } catch (error) {
+    next(error);
   }
 };

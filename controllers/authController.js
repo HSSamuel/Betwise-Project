@@ -2,27 +2,28 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
+const { body, validationResult } = require("express-validator");
 const User = require("../models/User");
 
 // --- Helper function to generate tokens ---
 const generateAccessToken = (user) => {
   const payload = { id: user._id, role: user.role, username: user.username };
   return jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || "1d", // Access token typically shorter
+    expiresIn: process.env.JWT_EXPIRES_IN || "1d",
   });
 };
 
 const generateRefreshToken = (user) => {
-  const payload = { id: user._id, username: user.username }; // Refresh token might have a simpler payload
+  const payload = { id: user._id, username: user.username };
   return jwt.sign(payload, process.env.JWT_REFRESH_SECRET, {
-    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d", // Refresh token typically longer
+    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
   });
 };
 
 // --- Helper function to send email ---
 const sendEmail = async (options) => {
   const transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || "gmail",
+    service: process.env.EMAIL_SERVICE || "gmail", // Consider more secure ways for credentials in prod
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
@@ -38,50 +39,89 @@ const sendEmail = async (options) => {
     to: options.email,
     subject: options.subject,
     text: options.message,
-    // html: options.html // Optionally add HTML version of email
   };
 
   try {
     await transporter.sendMail(mailOptions);
-    console.log("Email sent successfully.");
+    // console.log("Email sent successfully."); // Use a proper logger
   } catch (error) {
-    console.error("Error sending email:", error);
-    // Depending on the use case, you might not want to throw an error that stops the whole process,
-    // but rather log it and perhaps inform the user through a different channel or a generic message.
-    // For critical emails like password reset, throwing an error to be caught by the controller is appropriate.
+    // console.error("Error sending email:", error); // Use a proper logger
+    // Let the caller handle the implications of email sending failure.
     throw new Error(
-      "There was an error sending the email, please try again later."
+      "Email could not be sent due to a server configuration issue."
     );
   }
 };
 
+// --- Validation Rules ---
+exports.validateRegister = [
+  body("username")
+    .trim()
+    .isLength({ min: 3 })
+    .withMessage("Username must be at least 3 characters long.")
+    .escape(),
+  body("email")
+    .isEmail()
+    .withMessage("Please provide a valid email address.")
+    .normalizeEmail(),
+  body("password")
+    .isLength({ min: 6 })
+    .withMessage("Password must be at least 6 characters long."),
+  body("firstName")
+    .trim()
+    .notEmpty()
+    .withMessage("First name is required.")
+    .escape(),
+  body("lastName")
+    .trim()
+    .notEmpty()
+    .withMessage("Last name is required.")
+    .escape(),
+  body("state").optional().trim().escape(),
+];
+
+exports.validateLogin = [
+  body("email")
+    .isEmail()
+    .withMessage("Please provide a valid email address.")
+    .normalizeEmail(),
+  body("password").notEmpty().withMessage("Password is required."),
+];
+
+exports.validateRequestPasswordReset = [
+  body("email")
+    .isEmail()
+    .withMessage("Please provide a valid email address.")
+    .normalizeEmail(),
+];
+
+exports.validateResetPassword = [
+  body("password")
+    .isLength({ min: 6 })
+    .withMessage("Password must be at least 6 characters long."),
+  body("confirmPassword").custom((value, { req }) => {
+    if (value !== req.body.password) {
+      throw new Error("Passwords do not match.");
+    }
+    return true;
+  }),
+];
+
 // --- User Registration ---
 exports.register = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   const { username, email, password, firstName, lastName, state } = req.body;
 
-  if (!username || !email || !password || !firstName || !lastName) {
-    return res.status(400).json({
-      msg: "Please provide username, email, password, firstName, and lastName.",
-    });
-  }
-  if (username.length < 3)
-    return res
-      .status(400)
-      .json({ msg: "Username must be at least 3 characters." });
-  if (password.length < 6)
-    return res
-      .status(400)
-      .json({ msg: "Password must be at least 6 characters." });
-  const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
-  if (!emailRegex.test(email))
-    return res.status(400).json({ msg: "Invalid email format." });
-
   try {
+    const lowercasedUsername = username.toLowerCase();
+    const lowercasedEmail = email.toLowerCase();
+
     let user = await User.findOne({
-      $or: [
-        { username: username.toLowerCase() },
-        { email: email.toLowerCase() },
-      ],
+      $or: [{ username: lowercasedUsername }, { email: lowercasedEmail }],
     });
     if (user) {
       return res.status(400).json({ msg: "Username or email already exists." });
@@ -91,14 +131,12 @@ exports.register = async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     user = new User({
-      username: username.toLowerCase(),
+      username: lowercasedUsername,
       firstName,
       lastName,
-      email: email.toLowerCase(),
+      email: lowercasedEmail,
       password: hashedPassword,
-      state: state ? state.trim() : null,
-      // walletBalance is handled by schema default
-      // role is handled by schema default
+      state: state ? state.trim() : undefined, // Ensure state is undefined if empty after trim
     });
 
     await user.save();
@@ -106,10 +144,12 @@ exports.register = async (req, res, next) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
+    // TODO: Consider storing hashed refresh token in DB for enhanced security
+
     res.status(201).json({
       msg: "User registered successfully.",
       accessToken: accessToken,
-      refreshToken: refreshToken, // Include refresh token in registration response as well
+      refreshToken: refreshToken,
       user: {
         id: user._id,
         username: user.username,
@@ -122,52 +162,52 @@ exports.register = async (req, res, next) => {
       },
     });
   } catch (error) {
-    console.error("Error in user registration:", error.message);
-    if (error.name === "ValidationError") {
-      const messages = Object.values(error.errors).map((val) => val.message);
-      return res.status(400).json({ msg: messages.join(", ") });
+    // Mongoose unique index violation (code 11000) for username or email
+    if (error.code === 11000) {
+      return res.status(400).json({ msg: "Username or email already exists." });
     }
-    // Pass to centralized error handler if not a validation error
     next(error);
   }
 };
 
 // --- User Login ---
 exports.login = async (req, res, next) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res
-      .status(400)
-      .json({ msg: "Please provide both email and password." });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
   }
 
+  const { email, password } = req.body;
+
   try {
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: email.toLowerCase() }).select(
+      "+password"
+    ); // Ensure password is selected
     if (!user) {
-      return res.status(401).json({ msg: "Invalid credentials." }); // 401 for auth failure
+      return res
+        .status(401)
+        .json({ msg: "Invalid credentials. User not found." });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ msg: "Invalid credentials." }); // 401 for auth failure
+      return res
+        .status(401)
+        .json({ msg: "Invalid credentials. Password incorrect." });
     }
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Optionally: Store refresh token in DB associated with user for better security and management
-    // For simplicity, we are not storing it in this iteration.
-    // user.refreshToken = refreshToken; // Example if you add a field to User model
-    // await user.save();
+    // TODO: Consider storing hashed refresh token in DB for enhanced security
 
     res.json({
       message: "Login successful",
       accessToken: accessToken,
       refreshToken: refreshToken,
       user: {
-        id: user._id, // Include user ID
-        username: user.username, // Include username
+        id: user._id,
+        username: user.username,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
@@ -176,14 +216,13 @@ exports.login = async (req, res, next) => {
       },
     });
   } catch (error) {
-    console.error("Error in user login:", error.message);
     next(error);
   }
 };
 
 // --- Refresh Access Token ---
 exports.refreshToken = async (req, res, next) => {
-  const { token } = req.body;
+  const { token } = req.body; // This is the refresh token
 
   if (!token) {
     return res.status(401).json({ msg: "Refresh token is required." });
@@ -191,51 +230,46 @@ exports.refreshToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-
-    // Find user based on decoded token (e.g., by ID)
-    // Important: Ensure the refresh token hasn't been revoked (if implementing revocation)
     const user = await User.findById(decoded.id);
 
     if (!user) {
       return res
         .status(403)
-        .json({ msg: "Invalid refresh token or user not found." }); // 403 Forbidden
+        .json({ msg: "Invalid refresh token or user not found." });
     }
 
-    // Optionally: Check if this refresh token is still valid/active in your DB if you store them
-    // if (user.refreshToken !== token) { // Example check
-    //    return res.status(403).json({ msg: "Refresh token is no longer valid." });
+    // TODO: Implement refresh token validation against stored (hashed) token in DB
+    // If (user.refreshToken !== hash(token) || user.refreshTokenExpires < Date.now()) {
+    //    return res.status(403).json({ msg: "Refresh token is invalid, expired, or has been revoked." });
     // }
 
     const newAccessToken = generateAccessToken(user);
-
     res.json({
       accessToken: newAccessToken,
     });
   } catch (err) {
-    console.error("Error refreshing token:", err.message);
     if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
       return res
         .status(403)
-        .json({ msg: "Refresh token is invalid or expired." }); // 403 Forbidden
+        .json({ msg: "Refresh token is invalid or expired." });
     }
-    next(err); // Pass to centralized error handler
+    next(err);
   }
 };
 
 // --- Request Password Reset ---
 exports.requestPasswordReset = async (req, res, next) => {
-  const { email } = req.body;
-  if (!email) {
-    return res.status(400).json({ msg: "Please provide an email address." });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
   }
+  const { email } = req.body;
 
   try {
     const user = await User.findOne({ email: email.toLowerCase() });
 
     if (!user) {
-      // To prevent email enumeration, always return a generic success message
-      console.log(`Password reset attempt for non-existent email: ${email}`);
+      // console.log(`Password reset attempt for non-existent email: ${email}`); // Use logger
       return res.status(200).json({
         msg: "If your email address is registered with us, you will receive a password reset link shortly.",
       });
@@ -246,64 +280,57 @@ exports.requestPasswordReset = async (req, res, next) => {
       .createHash("sha256")
       .update(resetToken)
       .digest("hex");
-    user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // Token valid for 10 minutes
+    user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    await user.save({ validateBeforeSave: false }); // Skip validation for these specific fields
+    await user.save({ validateBeforeSave: false });
 
-    // UPDATED SECTION FOR EMAIL CONTENT
-    const appName = process.env.APP_NAME || "BetWise"; // Use APP_NAME from .env or default to "BetWise"
+    const appName = process.env.APP_NAME || "BetWise";
     const resetUrl = `${
-      process.env.FRONTEND_URL || "http://localhost:8000"
-    }/reset-password/${resetToken}`; // Ensure FRONTEND_URL is in .env
+      process.env.FRONTEND_URL || "http://localhost:3000"
+    }/reset-password/${resetToken}`;
     const messageText = `You are receiving this email because you (or someone else) have requested the reset of a password for your ${appName} account.\n\nPlease click on the following link, or paste this into your browser to complete the process within 10 minutes of receiving it:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email and your password will remain unchanged.\n\nThanks,\nThe ${appName} Team`;
 
     try {
       await sendEmail({
         email: user.email,
-        subject: `Your ${appName} Password Reset Token (valid for 10 min)`, // Updated subject
+        subject: `Your ${appName} Password Reset Token (valid for 10 min)`,
         message: messageText,
       });
       res.status(200).json({
         msg: "If your email address is registered with us, you will receive a password reset link shortly.",
       });
     } catch (emailError) {
-      // If email sending fails, we should not leave the reset token in the DB as it's unusable.
+      // If email sending fails, we should ideally not leave an unusable token in the DB.
       user.passwordResetToken = undefined;
       user.passwordResetExpires = undefined;
       await user.save({ validateBeforeSave: false });
-      console.error(
-        "EMAIL SENDING ERROR (requestPasswordReset):",
-        emailError.message
+
+      // console.error("EMAIL SENDING ERROR (requestPasswordReset):", emailError.message); // Use logger
+      // Do not inform the client about the email sending failure directly, to prevent user enumeration.
+      // Instead, rely on the global error handler for server errors or return a generic "try again" for client.
+      // For a critical server-side issue like this, passing to next(err) is appropriate.
+      // The error thrown by sendEmail helper might be too generic.
+      // We can create a more specific error or log it and pass a generic one.
+      const serverError = new Error(
+        "The server encountered an error trying to send the password reset email. Please try again later."
       );
-      // It's important to inform the user that something went wrong, but avoid too many details.
-      return res.status(500).json({
-        msg: "There was an error processing your request. Please try again later.",
-      });
+      serverError.statusCode = 500; // Internal Server Error
+      next(serverError);
     }
   } catch (error) {
-    console.error("REQUEST PASSWORD RESET ERROR:", error);
     next(error);
   }
 };
 
 // --- Reset Password ---
 exports.resetPassword = async (req, res, next) => {
-  const { password, confirmPassword } = req.body;
-  const plainTokenFromUrl = req.params.token;
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
 
-  if (!password || !confirmPassword) {
-    return res
-      .status(400)
-      .json({ msg: "Please provide new password and confirm password." });
-  }
-  if (password !== confirmPassword) {
-    return res.status(400).json({ msg: "Passwords do not match." });
-  }
-  if (password.length < 6) {
-    return res
-      .status(400)
-      .json({ msg: "Password must be at least 6 characters long." });
-  }
+  const { password } = req.body; // confirmPassword already checked by validator
+  const plainTokenFromUrl = req.params.token;
 
   try {
     const hashedToken = crypto
@@ -313,7 +340,7 @@ exports.resetPassword = async (req, res, next) => {
 
     const user = await User.findOne({
       passwordResetToken: hashedToken,
-      passwordResetExpires: { $gt: Date.now() }, // Check if token is not expired
+      passwordResetExpires: { $gt: Date.now() },
     });
 
     if (!user) {
@@ -324,24 +351,16 @@ exports.resetPassword = async (req, res, next) => {
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
-    user.passwordResetToken = undefined; // Clear the reset token
-    user.passwordResetExpires = undefined; // Clear the expiry
-    // user.passwordChangedAt = Date.now(); // Optional: track when password was last changed
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    // user.passwordChangedAt = Date.now(); // Optional: for security audits
 
-    await user.save(); // This will now trigger full validation
-
-    // Optionally, log the user in directly or send a confirmation email
-    // For now, just a success message.
+    await user.save(); // This will trigger full Mongoose validation
 
     res.status(200).json({
       msg: "Password has been reset successfully. You can now log in with your new password.",
     });
   } catch (error) {
-    console.error("RESET PASSWORD ERROR:", error);
-    if (error.name === "ValidationError") {
-      const messages = Object.values(error.errors).map((val) => val.message);
-      return res.status(400).json({ msg: messages.join(", ") });
-    }
     next(error);
   }
 };

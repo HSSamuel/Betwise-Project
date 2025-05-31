@@ -8,6 +8,7 @@ const {
   getAllUsersFullDetails, // Import the new function
 } = require("../controllers/adminController");
 const gameController = require("../controllers/gameController"); // For game management routes under admin
+const { validateListUsers } = require("../controllers/adminController");
 
 // --- Admin Dashboard & Stats ---
 
@@ -26,7 +27,7 @@ router.get("/stats/platform", auth, isAdmin, getPlatformStats);
 // @route   GET /admin/users
 // @desc    Admin: List all users (with pagination and filtering)
 // @access  Private (Admin)
-router.get("/users", auth, isAdmin, listUsers);
+router.get("/users", auth, isAdmin, validateListUsers, listUsers);
 
 // @route   GET /admin/all-users-full
 // @desc    Admin: Get all users with full details (including password)

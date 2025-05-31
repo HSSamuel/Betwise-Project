@@ -2,9 +2,10 @@ const User = require("../models/User");
 const Bet = require("../models/Bet");
 const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
+const { query, validationResult } = require("express-validator"); // For input validation
 
 // Admin: Get basic platform statistics
-exports.getPlatformStats = async (req, res) => {
+exports.getPlatformStats = async (req, res, next) => {
   try {
     const userCount = await User.countDocuments();
     const betCount = await Bet.countDocuments();
@@ -22,44 +23,37 @@ exports.getPlatformStats = async (req, res) => {
       totalTransactionsRecorded: totalTransactions,
     });
   } catch (err) {
-    console.error("Error fetching platform stats:", err.message);
-    res
-      .status(500)
-      .json({ msg: "Server error while fetching platform stats." });
+    // console.error("Error fetching platform stats:", err.message); // Handled by global error handler
+    next(err); // Pass error to centralized error handler
   }
 };
 
-// Admin: Get financial dashboard (totals of topups, bets, wins)
-exports.getFinancialDashboard = async (req, res) => {
+// Admin: Get financial dashboard
+exports.getFinancialDashboard = async (req, res, next) => {
   try {
-    // Perform a single aggregation to handle multiple transaction types
     const financialData = await Transaction.aggregate([
       {
         $match: {
-          type: { $in: ["topup", "bet", "win", "refund"] }, // Match relevant transaction types
+          type: { $in: ["topup", "bet", "win", "refund"] },
         },
       },
       {
         $group: {
-          _id: "$type", // Group by transaction type
-          totalAmount: { $sum: "$amount" }, // Sum of amounts for each type
-          count: { $sum: 1 }, // Count of transactions for each type
+          _id: "$type",
+          totalAmount: { $sum: "$amount" },
+          count: { $sum: 1 },
         },
       },
     ]);
 
-    // Initialize stats object with defaults
     const dashboardStats = {
       totalTopUps: { amount: 0, count: 0 },
-      totalStakes: { amount: 0, count: 0 }, // Sum of all money staked (positive value)
-      totalPayoutsToUsers: { amount: 0, count: 0 }, // Sum of all winnings paid out
+      totalStakes: { amount: 0, count: 0 },
+      totalPayoutsToUsers: { amount: 0, count: 0 },
       totalRefunds: { amount: 0, count: 0 },
-      platformRevenue: { amount: 0 }, // (Total Stakes - Total Payouts to Users - Total Refunds on bets)
+      platformRevenue: { amount: 0 },
     };
 
-    let rawTotalStakes = 0;
-
-    // Map the aggregated results to the dashboardStats object
     financialData.forEach((transactionType) => {
       if (transactionType._id === "topup") {
         dashboardStats.totalTopUps = {
@@ -67,8 +61,6 @@ exports.getFinancialDashboard = async (req, res) => {
           count: transactionType.count || 0,
         };
       } else if (transactionType._id === "bet") {
-        // 'amount' for bets is stored as negative. For total stakes, we want the positive sum.
-        rawTotalStakes = transactionType.totalAmount || 0; // This will be negative or zero
         dashboardStats.totalStakes = {
           amount: Math.abs(transactionType.totalAmount) || 0,
           count: transactionType.count || 0,
@@ -86,15 +78,11 @@ exports.getFinancialDashboard = async (req, res) => {
       }
     });
 
-    // Calculate platform revenue
-    // Revenue = (Total money staked by users) - (Total money paid out as winnings) - (Total money refunded on bets)
-    // Note: totalRefunds might include non-bet refunds if that logic is added later.
-    // For now, assuming refunds are primarily for cancelled bets.
     dashboardStats.platformRevenue.amount =
       dashboardStats.totalStakes.amount -
       dashboardStats.totalPayoutsToUsers.amount -
       dashboardStats.totalRefunds.amount;
-    // Ensure amounts are fixed to 2 decimal places
+
     for (const key in dashboardStats) {
       if (dashboardStats[key].hasOwnProperty("amount")) {
         dashboardStats[key].amount = parseFloat(
@@ -105,75 +93,125 @@ exports.getFinancialDashboard = async (req, res) => {
 
     res.status(200).json(dashboardStats);
   } catch (err) {
-    console.error("Error fetching financial dashboard:", err.message);
-    res
-      .status(500)
-      .json({ msg: "Server error while fetching financial dashboard." });
+    // console.error("Error fetching financial dashboard:", err.message); // Handled by global error handler
+    next(err);
   }
 };
 
+// Validation rules for listUsers
+exports.validateListUsers = [
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Page must be a positive integer."),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Limit must be an integer between 1 and 100."),
+  query("role")
+    .optional()
+    .isIn(["user", "admin"])
+    .withMessage('Role must be either "user" or "admin".'),
+  query("sortBy")
+    .optional()
+    .isString()
+    .trim()
+    .escape()
+    .withMessage("SortBy must be a string."), // Further validation could check against allowed fields
+  query("order")
+    .optional()
+    .isIn(["asc", "desc"])
+    .withMessage('Order must be "asc" or "desc".'),
+  query("search")
+    .optional()
+    .isString()
+    .trim()
+    .escape()
+    .withMessage("Search term must be a string."),
+];
+
 // Admin: List users (with pagination)
-exports.listUsers = async (req, res) => {
+exports.listUsers = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
     const {
       page = 1,
       limit = 10,
       role,
-      sortBy = "createdAt",
-      order = "desc",
+      sortBy = "createdAt", // Default sort field
+      order = "desc", // Default sort order
+      search,
     } = req.query;
+
+    // Parsed and validated values
+    const queryPage = parseInt(page);
     const queryLimit = parseInt(limit);
-    const skip = (parseInt(page) - 1) * queryLimit;
+    const skip = (queryPage - 1) * queryLimit;
 
     const filter = {};
     if (role) filter.role = role;
+    if (search) {
+      const searchRegex = new RegExp(search, "i"); // Case-insensitive search
+      filter.$or = [
+        { username: searchRegex },
+        { email: searchRegex },
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+      ];
+    }
+
+    // Basic protection against NoSQL injection for sortBy by ensuring it's a reasonable field name (alphanumeric)
+    // A more robust solution would be to whitelist allowed sortBy fields.
+    const safeSortBy = /^[a-zA-Z0-9_]+$/.test(sortBy) ? sortBy : "createdAt";
 
     const sortOptions = {};
-    sortOptions[sortBy] = order === "asc" ? 1 : -1;
+    sortOptions[safeSortBy] = order === "asc" ? 1 : -1;
 
     const users = await User.find(filter)
       .select("-password") // Exclude passwords
       .sort(sortOptions)
       .limit(queryLimit)
-      .skip(skip);
+      .skip(skip)
+      .lean(); // Use .lean() for faster queries when not modifying documents
 
     const totalUsers = await User.countDocuments(filter);
 
     res.json({
       users,
-      currentPage: parseInt(page),
+      currentPage: queryPage,
       totalPages: Math.ceil(totalUsers / queryLimit),
       totalCount: totalUsers,
     });
   } catch (err) {
-    console.error("Error listing users:", err.message);
-    res.status(500).json({ msg: "Server error while listing users." });
+    // console.error("Error listing users:", err.message); // Handled by global error handler
+    next(err);
   }
 };
-// Admin: Get user details by ID (excluding password)
 
-// NEW FUNCTION: Admin: Get all users with full details for specific needs
+// Admin: Get all users with full details for specific needs
 exports.getAllUsersFullDetails = async (req, res, next) => {
   try {
-    const allUsers = await User.find({}); // Fetch all users, include password by default
+    // Consider adding pagination here as well if the number of users can be very large.
+    // For now, fetching all as per original function's intent.
+    const allUsers = await User.find({}).lean(); // Use .lean() for performance
 
-    // Rename 'username' to 'user' to match the screenshot, if desired
-    // and ensure all necessary fields are present as in the screenshot.
-    const formattedUsers = allUsers.map((u) => {
-      const userObject = u.toObject(); // Convert Mongoose document to plain object
-
-      // Match screenshot fields as closely as possible from User model
+    const formattedUsers = allUsers.map((userObject) => {
+      // userObject is already a plain object due to .lean()
+      // 'verified' field is not in the current User.js model.
+      // If you add it to the model, it would be: verified: userObject.verified,
       return {
         _id: userObject._id,
         role: userObject.role,
         user: userObject.username, // Mapping 'username' to 'user'
         email: userObject.email,
-        password: userObject.password, // Included as per requirement
+        password: userObject.password, // Hashed password
         firstName: userObject.firstName,
         lastName: userObject.lastName,
         state: userObject.state,
-        // 'verified' field is not in the current User.js model.
-        // If you add it to the model, it would be: verified: userObject.verified,
         createdAt: userObject.createdAt,
         updatedAt: userObject.updatedAt,
         __v: userObject.__v,
@@ -181,19 +219,11 @@ exports.getAllUsersFullDetails = async (req, res, next) => {
     });
 
     res.status(200).json({
-      msg: "Successful",
-      allUser: formattedUsers, // Use 'allUser' as the key for the array
+      msg: "Successfully fetched all user details.", // More descriptive message
+      allUser: formattedUsers,
     });
   } catch (err) {
-    console.error("Error fetching all users full details:", err.message);
-  
-    if (next) {
-      next(err);
-    } else {
-      res
-        .status(500)
-        .json({ msg: "Server error while fetching all users details." });
-    }
+    // console.error("Error fetching all users full details:", err.message); // Handled by global error handler
+    next(err);
   }
 };
-// Admin: Get user details by ID (excluding password)

@@ -1,63 +1,83 @@
+const { body, query, validationResult } = require("express-validator");
+const mongoose = require("mongoose"); // For ObjectId in aggregation
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 
+// --- Validation Rules ---
+exports.validateTopUpWallet = [
+  body("amount")
+    .isFloat({ gt: 0, lt: 100000 })
+    .withMessage("Top-up amount must be a positive number less than 100,000.")
+    .toFloat(), // Example max limit
+];
+
+exports.validateGetTransactionHistory = [
+  query("type")
+    .optional()
+    .isIn(["bet", "win", "topup", "refund"])
+    .withMessage("Invalid transaction type."),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Limit must be an integer between 1 and 100.")
+    .toInt(),
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Page must be a positive integer.")
+    .toInt(),
+];
+
 // Get current user's wallet balance
-exports.getWallet = async (req, res) => {
+exports.getWallet = async (req, res, next) => {
   try {
-    // req.user is attached by the auth middleware
-    const user = await User.findById(req.user.id).select(
-      "walletBalance username email"
-    );
+    const user = await User.findById(req.user.id)
+      .select("walletBalance username email")
+      .lean(); // Use lean for read-only
+
     if (!user) {
-      // This case should ideally not happen if auth middleware is working correctly
-      return res.status(404).json({ msg: "User not found." });
+      const err = new Error("User wallet data not found.");
+      err.statusCode = 404;
+      return next(err);
     }
     res.json({
       username: user.username,
       email: user.email,
-      walletBalance: user.walletBalance,
+      walletBalance: parseFloat(user.walletBalance.toFixed(2)), // Ensure formatted output
     });
-  } catch (err) {
-    console.error("Error fetching wallet:", err.message);
-    res
-      .status(500)
-      .json({ msg: "Server error while fetching wallet balance." });
+  } catch (error) {
+    next(error);
   }
 };
 
 // Top up current user's wallet
-exports.topUpWallet = async (req, res) => {
+exports.topUpWallet = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  const { amount } = req.body; // Amount is already validated and converted to float by express-validator
+
   try {
-    const { amount } = req.body;
-    const topUpAmount = Number(amount);
-
-    // Validate top-up amount
-    if (isNaN(topUpAmount) || topUpAmount <= 0) {
-      return res
-        .status(400)
-        .json({ msg: "Invalid top-up amount. Must be a positive number." });
-    }
-    // Optional: Add a maximum top-up limit
-    // if (topUpAmount > 10000) { // Example limit
-    //   return res.status(400).json({ msg: "Top-up amount exceeds the maximum limit." });
-    // }
-
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id); // Need full document to save
     if (!user) {
-      return res.status(404).json({ msg: "User not found." }); // Should be rare
+      const err = new Error("User not found for wallet top-up.");
+      err.statusCode = 404;
+      return next(err);
     }
 
-    // Update wallet balance
-    user.walletBalance += topUpAmount;
+    user.walletBalance += amount;
+    user.walletBalance = parseFloat(user.walletBalance.toFixed(2)); // Ensure precision
+
     await user.save();
 
-    // Create a transaction record for the top-up
     const transaction = new Transaction({
       user: user._id,
       type: "topup",
-      amount: topUpAmount,
+      amount: parseFloat(amount.toFixed(2)), // Store validated amount with precision
       balanceAfter: user.walletBalance,
-      description: `Wallet top-up of ${topUpAmount}`,
+      description: `Wallet top-up of ${amount.toFixed(2)}`,
     });
     await transaction.save();
 
@@ -66,61 +86,59 @@ exports.topUpWallet = async (req, res) => {
       walletBalance: user.walletBalance,
       transactionId: transaction._id,
     });
-  } catch (err) {
-    console.error("Error topping up wallet:", err.message);
-    res.status(500).json({ msg: "Server error while topping up wallet." });
+  } catch (error) {
+    next(error);
   }
 };
 
 // Get transaction history for the current user
-exports.getTransactionHistory = async (req, res) => {
+exports.getTransactionHistory = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
-    const { type, limit = 10, page = 1 } = req.query; // Add pagination and type filtering
-    const queryLimit = parseInt(limit);
-    const skip = (parseInt(page) - 1) * queryLimit;
+    const { type } = req.query;
+    const limit = req.query.limit || 10; // Defaults if not provided, already validated
+    const page = req.query.page || 1;
+    const skip = (page - 1) * limit;
 
     const filter = { user: req.user.id };
-    if (type && ["bet", "win", "topup", "refund"].includes(type)) {
+    if (type) {
       filter.type = type;
     }
 
     const transactions = await Transaction.find(filter)
-      .sort({ createdAt: -1 }) // Newest first
-      .populate({ path: "game", select: "homeTeam awayTeam" }) // Optionally populate game details
-      .populate({ path: "bet", select: "outcome stake" }) // Optionally populate bet details
-      .limit(queryLimit)
-      .skip(skip);
+      .sort({ createdAt: -1 })
+      .populate({ path: "game", select: "homeTeam awayTeam" })
+      .populate({ path: "bet", select: "outcome stake" })
+      .limit(limit)
+      .skip(skip)
+      .lean();
 
     const totalTransactions = await Transaction.countDocuments(filter);
 
-    if (!transactions || transactions.length === 0) {
-      return res.status(404).json({ msg: "No transactions found." });
-    }
-
     res.json({
       transactions,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(totalTransactions / queryLimit),
+      currentPage: page,
+      totalPages: Math.ceil(totalTransactions / limit),
       totalCount: totalTransactions,
     });
-  } catch (err) {
-    console.error("Error fetching transaction history:", err.message);
-    res
-      .status(500)
-      .json({ msg: "Server error while fetching transaction history." });
+  } catch (error) {
+    next(error);
   }
 };
 
 // Get wallet summary for the current user
-exports.getWalletSummary = async (req, res) => {
+exports.getWalletSummary = async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    // Using a single aggregation pipeline for efficiency
     const summaryPipeline = [
       {
         $match: {
-          user: userId,
+          user: new mongoose.Types.ObjectId(userId), // Ensure userId is ObjectId
           type: { $in: ["topup", "bet", "win", "refund"] },
         },
       },
@@ -137,44 +155,38 @@ exports.getWalletSummary = async (req, res) => {
 
     const summary = {
       totalTopUps: { amount: 0, count: 0 },
-      totalBetsPlaced: { amount: 0, count: 0 }, // Sum of stakes (absolute value)
+      totalBetsPlaced: { amount: 0, count: 0 },
       totalWinnings: { amount: 0, count: 0 },
       totalRefunds: { amount: 0, count: 0 },
-      netGamblingResult: 0, // totalWinnings - totalBetsPlaced (stakes)
+      netGamblingResult: 0,
+      currentWalletBalance: 0,
     };
 
     results.forEach((item) => {
+      const amount = parseFloat((item.totalAmount || 0).toFixed(2));
+      const count = item.count || 0;
       if (item._id === "topup") {
-        summary.totalTopUps = { amount: item.totalAmount, count: item.count };
+        summary.totalTopUps = { amount, count };
       } else if (item._id === "bet") {
-        // Bets are stored as negative, so sum of amounts will be negative.
-        // For "total stakes", we want the sum of positive stake values.
-        // This requires fetching original stakes or storing them positively.
-        // Assuming 'amount' for 'bet' type is negative stake.
-        summary.totalBetsPlaced = {
-          amount: Math.abs(item.totalAmount),
-          count: item.count,
-        };
+        summary.totalBetsPlaced = { amount: Math.abs(amount), count }; // Bets are negative
       } else if (item._id === "win") {
-        summary.totalWinnings = { amount: item.totalAmount, count: item.count };
+        summary.totalWinnings = { amount, count };
       } else if (item._id === "refund") {
-        summary.totalRefunds = { amount: item.totalAmount, count: item.count };
+        summary.totalRefunds = { amount, count };
       }
     });
 
-    summary.netGamblingResult =
-      summary.totalWinnings.amount - summary.totalBetsPlaced.amount;
+    summary.netGamblingResult = parseFloat(
+      (summary.totalWinnings.amount - summary.totalBetsPlaced.amount).toFixed(2)
+    );
 
-    // Also get current balance
-    const user = await User.findById(userId).select("walletBalance");
-    summary.currentWalletBalance = user ? user.walletBalance : 0;
+    const user = await User.findById(userId).select("walletBalance").lean();
+    summary.currentWalletBalance = user
+      ? parseFloat(user.walletBalance.toFixed(2))
+      : 0;
 
     res.json(summary);
-  } catch (err) {
-    console.error("Error generating wallet summary:", err.message);
-    res
-      .status(500)
-      .json({ msg: "Server error while generating wallet summary." });
+  } catch (error) {
+    next(error);
   }
 };
-// This controller handles wallet-related operations for users, including:
