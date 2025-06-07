@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User"); // Adjust path if your models are elsewhere
+const TokenBlacklist = require("../models/TokenBlacklist"); // Adjust path if your models are elsewhere
 
 // Custom Error class for Auth errors (optional, but helps standardize)
 class AuthError extends Error {
@@ -23,6 +24,15 @@ exports.auth = async (req, res, next) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
+
+    // --- NEW: Check if token is on the blacklist ---
+    const blacklistedToken = await TokenBlacklist.findOne({ token });
+    if (blacklistedToken) {
+      throw new AuthError(
+        "Token is invalid or has been revoked (logged out).",
+        401
+      );
+    }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET); // This can throw JsonWebTokenError or TokenExpiredError
 

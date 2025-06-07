@@ -8,8 +8,6 @@ const userSchema = new mongoose.Schema(
       unique: true,
       trim: true,
       minlength: [3, "Username must be at least 3 characters long."],
-      // Optional: Add a match regex for allowed username characters if needed
-      // match: [/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores.']
     },
     firstName: {
       type: String,
@@ -25,36 +23,43 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, "Email address is required."],
       unique: true,
-      // sparse: true, // Not strictly necessary since email is required, but harmless.
-      lowercase: true, // Ensures email is stored in lowercase for consistent lookups
+      lowercase: true,
       trim: true,
       match: [
-        /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, // Improved regex
+        /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
         "Please provide a valid email address.",
       ],
     },
     password: {
       type: String,
-      required: [true, "Password is required."],
-      minlength: [6, "Password must be at least 6 characters long."],
-      select: false, // IMPORTANT: Do not return password by default
+      // required: [true, "Password is required."], // REMOVED: A user can sign up with Google/Facebook and not have a password.
+      minlength: [
+        6,
+        "Password must be at least 6 characters long if provided.",
+      ],
+      select: false,
     },
     state: {
       type: String,
       trim: true,
-      // Example: if state is a predefined list
-      // enum: {
-      //   values: ["Lagos", "Abuja", "Kano", "Rivers", "Other"],
-      //   message: "'{VALUE}' is not a supported state."
-      // }
     },
+    // --- CORRECTED: googleId and facebookId are now top-level fields ---
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true, // Allows multiple null values but enforces uniqueness for actual values
+    },
+    facebookId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    // ---------------------------------------------------------------------
     walletBalance: {
       type: Number,
-      required: [true, "Wallet balance is required."], // Make it explicitly required if every user must have one.
+      required: [true, "Wallet balance is required."],
       default: 1000,
       min: [0, "Wallet balance cannot be negative."],
-      // Custom setter to ensure two decimal places if needed at schema level (advanced)
-      // set: val => parseFloat(val.toFixed(2))
     },
     role: {
       type: String,
@@ -64,33 +69,27 @@ const userSchema = new mongoose.Schema(
       },
       default: "user",
     },
-    // Fields for password reset
     passwordResetToken: {
       type: String,
-      select: false, // IMPORTANT: Do not return by default
+      select: false,
     },
     passwordResetExpires: {
       type: Date,
-      select: false, // IMPORTANT: Do not return by default
+      select: false,
     },
-    // Optional: Track when the password was last changed for security purposes
-    // passwordChangedAt: Date,
   },
-  { timestamps: true } // Adds createdAt and updatedAt
+  { timestamps: true }
 );
 
-// Indexes for username and email are automatically created due to `unique: true`.
-// Additional indexes can be added if there are frequent queries on other fields.
-// e.g., if admins frequently search or list users by role:
-// userSchema.index({ role: 1 });
+// Indexes for username, email, googleId, and facebookId are automatically
+// created because the `unique` constraint is set to true.
 
-// Example of a virtual for full name (not strictly an "improvement" but a Mongoose feature)
 userSchema.virtual("fullName").get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-// Ensure virtuals are included when converting to JSON or Object
 userSchema.set("toJSON", { virtuals: true });
 userSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("User", userSchema);
+// This code defines a Mongoose schema for a User model in a Node.js application.

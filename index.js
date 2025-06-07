@@ -4,6 +4,8 @@ const helmet = require("helmet"); // For security headers
 const morgan = require("morgan"); // For request logging
 const cors = require("cors"); // For Cross-Origin Resource Sharing
 const connectDB = require("./config/db");
+const passport = require("passport");
+require("./config/passport-setup"); // This executes the passport configuration code
 
 const app = express();
 

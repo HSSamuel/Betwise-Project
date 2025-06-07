@@ -4,8 +4,9 @@ const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const { body, validationResult } = require("express-validator");
 const User = require("../models/User");
+const TokenBlacklist = require("../models/TokenBlacklist");
 
-// --- Helper function to generate tokens ---
+// --- Helper Functions ---
 const generateAccessToken = (user) => {
   const payload = { id: user._id, role: user.role, username: user.username };
   return jwt.sign(payload, process.env.JWT_SECRET, {
@@ -20,16 +21,14 @@ const generateRefreshToken = (user) => {
   });
 };
 
-// --- Helper function to send email ---
 const sendEmail = async (options) => {
   const transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || "gmail", // Consider more secure ways for credentials in prod
+    service: process.env.EMAIL_SERVICE || "gmail",
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS,
     },
   });
-
   const mailOptions = {
     from:
       process.env.EMAIL_FROM ||
@@ -40,20 +39,16 @@ const sendEmail = async (options) => {
     subject: options.subject,
     text: options.message,
   };
-
   try {
     await transporter.sendMail(mailOptions);
-    // console.log("Email sent successfully."); // Use a proper logger
   } catch (error) {
-    // console.error("Error sending email:", error); // Use a proper logger
-    // Let the caller handle the implications of email sending failure.
     throw new Error(
       "Email could not be sent due to a server configuration issue."
     );
   }
 };
 
-// --- Validation Rules ---
+// --- Validation Rules (No Changes Here) ---
 exports.validateRegister = [
   body("username")
     .trim()
@@ -79,7 +74,6 @@ exports.validateRegister = [
     .escape(),
   body("state").optional().trim().escape(),
 ];
-
 exports.validateLogin = [
   body("email")
     .isEmail()
@@ -87,14 +81,12 @@ exports.validateLogin = [
     .normalizeEmail(),
   body("password").notEmpty().withMessage("Password is required."),
 ];
-
 exports.validateRequestPasswordReset = [
   body("email")
     .isEmail()
     .withMessage("Please provide a valid email address.")
     .normalizeEmail(),
 ];
-
 exports.validateResetPassword = [
   body("password")
     .isLength({ min: 6 })
@@ -107,45 +99,37 @@ exports.validateResetPassword = [
   }),
 ];
 
-// --- User Registration ---
+// --- Controller Functions ---
+
 exports.register = async (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
-
   const { username, email, password, firstName, lastName, state } = req.body;
-
   try {
-    const lowercasedUsername = username.toLowerCase();
-    const lowercasedEmail = email.toLowerCase();
-
     let user = await User.findOne({
-      $or: [{ username: lowercasedUsername }, { email: lowercasedEmail }],
+      $or: [
+        { username: username.toLowerCase() },
+        { email: email.toLowerCase() },
+      ],
     });
     if (user) {
       return res.status(400).json({ msg: "Username or email already exists." });
     }
-
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-
     user = new User({
-      username: lowercasedUsername,
+      username: username.toLowerCase(),
       firstName,
       lastName,
-      email: lowercasedEmail,
+      email: email.toLowerCase(),
       password: hashedPassword,
-      state: state ? state.trim() : undefined, // Ensure state is undefined if empty after trim
+      state: state ? state.trim() : undefined,
     });
-
     await user.save();
-
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
-
-    // TODO: Consider storing hashed refresh token in DB for enhanced security
-
     res.status(201).json({
       msg: "User registered successfully.",
       accessToken: accessToken,
@@ -162,7 +146,6 @@ exports.register = async (req, res, next) => {
       },
     });
   } catch (error) {
-    // Mongoose unique index violation (code 11000) for username or email
     if (error.code === 11000) {
       return res.status(400).json({ msg: "Username or email already exists." });
     }
@@ -170,37 +153,29 @@ exports.register = async (req, res, next) => {
   }
 };
 
-// --- User Login ---
 exports.login = async (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
-
   const { email, password } = req.body;
-
   try {
     const user = await User.findOne({ email: email.toLowerCase() }).select(
       "+password"
-    ); // Ensure password is selected
+    );
     if (!user) {
-      return res
-        .status(401)
-        .json({ msg: "Invalid credentials. User not found." });
+      const err = new Error("Invalid credentials.");
+      err.statusCode = 401;
+      return next(err);
     }
-
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res
-        .status(401)
-        .json({ msg: "Invalid credentials. Password incorrect." });
+      const err = new Error("Invalid credentials.");
+      err.statusCode = 401;
+      return next(err);
     }
-
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
-
-    // TODO: Consider storing hashed refresh token in DB for enhanced security
-
     res.json({
       message: "Login successful",
       accessToken: accessToken,
@@ -220,76 +195,100 @@ exports.login = async (req, res, next) => {
   }
 };
 
-// --- Refresh Access Token ---
-exports.refreshToken = async (req, res, next) => {
-  const { token } = req.body; // This is the refresh token
-
-  if (!token) {
-    return res.status(401).json({ msg: "Refresh token is required." });
+exports.logout = async (req, res, next) => {
+  try {
+    const authHeader = req.header("Authorization");
+    const token = authHeader.replace("Bearer ", "");
+    const decoded = jwt.decode(token);
+    const expiresAt = new Date(decoded.exp * 1000);
+    await new TokenBlacklist({ token, expiresAt }).save();
+    res.status(200).json({ msg: "You have been logged out successfully." });
+  } catch (error) {
+    next(error);
   }
+};
 
+exports.refreshToken = async (req, res, next) => {
+  const { token } = req.body;
+  if (!token) {
+    const err = new Error("Refresh token is required.");
+    err.statusCode = 401;
+    return next(err);
+  }
   try {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
     const user = await User.findById(decoded.id);
-
     if (!user) {
-      return res
-        .status(403)
-        .json({ msg: "Invalid refresh token or user not found." });
+      const err = new Error("Invalid refresh token or user not found.");
+      err.statusCode = 403; // Forbidden
+      return next(err);
     }
-
-    // TODO: Implement refresh token validation against stored (hashed) token in DB
-    // If (user.refreshToken !== hash(token) || user.refreshTokenExpires < Date.now()) {
-    //    return res.status(403).json({ msg: "Refresh token is invalid, expired, or has been revoked." });
-    // }
-
     const newAccessToken = generateAccessToken(user);
-    res.json({
-      accessToken: newAccessToken,
-    });
+    res.json({ accessToken: newAccessToken });
   } catch (err) {
     if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
-      return res
-        .status(403)
-        .json({ msg: "Refresh token is invalid or expired." });
+      const error = new Error("Refresh token is invalid or expired.");
+      error.statusCode = 403;
+      return next(error);
     }
     next(err);
   }
 };
 
-// --- Request Password Reset ---
+// --- Social Login Callback ---
+// This function is called after passport successfully authenticates the user via Google/Facebook
+// MOVED HERE TO BE A TOP-LEVEL EXPORT
+exports.socialLoginCallback = async (req, res, next) => {
+  try {
+    // passport attaches the user to req.user
+    const user = req.user;
+    if (!user) {
+      const err = new Error("User authentication failed.");
+      err.statusCode = 401;
+      return next(err);
+    }
+
+    // Generate our own JWTs for the user
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // Redirect user back to the frontend with tokens in the query string
+    res.redirect(
+      `${process.env.FRONTEND_URL}/social-auth-success?accessToken=${accessToken}&refreshToken=${refreshToken}`
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- Password Management Functions (No Changes Here) ---
+
 exports.requestPasswordReset = async (req, res, next) => {
+  // ... logic remains the same
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
   const { email } = req.body;
-
   try {
     const user = await User.findOne({ email: email.toLowerCase() });
-
     if (!user) {
-      // console.log(`Password reset attempt for non-existent email: ${email}`); // Use logger
       return res.status(200).json({
         msg: "If your email address is registered with us, you will receive a password reset link shortly.",
       });
     }
-
     const resetToken = crypto.randomBytes(32).toString("hex");
     user.passwordResetToken = crypto
       .createHash("sha256")
       .update(resetToken)
       .digest("hex");
-    user.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
+    user.passwordResetExpires = Date.now() + 10 * 60 * 1000;
     await user.save({ validateBeforeSave: false });
-
     const appName = process.env.APP_NAME || "BetWise";
     const resetUrl = `${
       process.env.FRONTEND_URL || "http://localhost:3000"
     }/reset-password/${resetToken}`;
     const messageText = `You are receiving this email because you (or someone else) have requested the reset of a password for your ${appName} account.\n\nPlease click on the following link, or paste this into your browser to complete the process within 10 minutes of receiving it:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email and your password will remain unchanged.\n\nThanks,\nThe ${appName} Team`;
-
     try {
       await sendEmail({
         email: user.email,
@@ -300,21 +299,13 @@ exports.requestPasswordReset = async (req, res, next) => {
         msg: "If your email address is registered with us, you will receive a password reset link shortly.",
       });
     } catch (emailError) {
-      // If email sending fails, we should ideally not leave an unusable token in the DB.
       user.passwordResetToken = undefined;
       user.passwordResetExpires = undefined;
       await user.save({ validateBeforeSave: false });
-
-      // console.error("EMAIL SENDING ERROR (requestPasswordReset):", emailError.message); // Use logger
-      // Do not inform the client about the email sending failure directly, to prevent user enumeration.
-      // Instead, rely on the global error handler for server errors or return a generic "try again" for client.
-      // For a critical server-side issue like this, passing to next(err) is appropriate.
-      // The error thrown by sendEmail helper might be too generic.
-      // We can create a more specific error or log it and pass a generic one.
       const serverError = new Error(
         "The server encountered an error trying to send the password reset email. Please try again later."
       );
-      serverError.statusCode = 500; // Internal Server Error
+      serverError.statusCode = 500;
       next(serverError);
     }
   } catch (error) {
@@ -322,41 +313,33 @@ exports.requestPasswordReset = async (req, res, next) => {
   }
 };
 
-// --- Reset Password ---
 exports.resetPassword = async (req, res, next) => {
+  // ... logic remains the same
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
-
-  const { password } = req.body; // confirmPassword already checked by validator
+  const { password } = req.body;
   const plainTokenFromUrl = req.params.token;
-
   try {
     const hashedToken = crypto
       .createHash("sha256")
       .update(plainTokenFromUrl)
       .digest("hex");
-
     const user = await User.findOne({
       passwordResetToken: hashedToken,
       passwordResetExpires: { $gt: Date.now() },
     });
-
     if (!user) {
       return res
         .status(400)
         .json({ msg: "Password reset token is invalid or has expired." });
     }
-
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
-    // user.passwordChangedAt = Date.now(); // Optional: for security audits
-
-    await user.save(); // This will trigger full Mongoose validation
-
+    await user.save();
     res.status(200).json({
       msg: "Password has been reset successfully. You can now log in with your new password.",
     });

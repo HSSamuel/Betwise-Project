@@ -43,15 +43,19 @@ exports.placeBet = async (req, res, next) => {
   }
 
   let { gameId, outcome, stake } = req.body; // stake is already a float due to validation
-  const userId = req.user.id;
+  const userId = req.user._id;
+
+  if (!userId) {
+    // Add a safety check
+    return next(
+      new Error("Could not identify user from authentication token.")
+    );
+  }
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // Input validation is now handled by express-validator
-    // stake = Number(stake); // Already handled by toFloat()
-
     const user = await User.findById(userId).session(session);
     if (!user) {
       // This should ideally not happen if auth middleware is correct and user exists
