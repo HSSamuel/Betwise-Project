@@ -1,4 +1,16 @@
+// In: models/User.js
+
 const mongoose = require("mongoose");
+
+// This sub-schema should be defined only once at the top.
+const payoutDetailsSchema = new mongoose.Schema(
+  {
+    bankName: { type: String, trim: true },
+    accountNumber: { type: String, trim: true },
+    accountName: { type: String, trim: true },
+  },
+  { _id: false }
+);
 
 const userSchema = new mongoose.Schema(
   {
@@ -32,29 +44,15 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      // required: [true, "Password is required."], A user can sign up with Google/Facebook and not have a password.
       minlength: [
         6,
         "Password must be at least 6 characters long if provided.",
       ],
       select: false,
     },
-    state: {
-      type: String,
-      trim: true,
-    },
-    // --- GoogleId and facebookId are now top-level fields ---
-    googleId: {
-      type: String,
-      unique: true,
-      sparse: true, // Allows multiple null values but enforces uniqueness for actual values
-    },
-    facebookId: {
-      type: String,
-      unique: true,
-      sparse: true,
-    },
-    // --- End of GoogleId and facebookId ---
+    state: { type: String, trim: true },
+    googleId: { type: String, unique: true, sparse: true },
+    facebookId: { type: String, unique: true, sparse: true },
     walletBalance: {
       type: Number,
       required: [true, "Wallet balance is required."],
@@ -65,59 +63,29 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: {
         values: ["user", "admin"],
-        message: 'Role "{VALUE}" is not supported. Must be "user" or "admin".',
+        message: 'Role "{VALUE}" is not supported.',
       },
       default: "user",
     },
-
-    // --- FIELD FOR PERSONALIZATION ---
-    favoriteLeagues: {
-      type: [String], // An array of strings
-      default: [], // Defaults to an empty array
-    },
-    // ------------------------------------
-
-    passwordResetToken: {
-      type: String,
-      select: false,
-    },
-
-    passwordResetToken: {
-      type: String,
-      select: false,
-    },
-    passwordResetExpires: {
-      type: Date,
-      select: false,
-    },
-    // --- NEW FIELD ---
+    passwordResetToken: { type: String, select: false },
+    passwordResetExpires: { type: Date, select: false },
+    favoriteLeagues: { type: [String], default: [] },
     responsibleGambling: {
       status: {
         type: String,
         enum: ["ok", "at_risk", "restricted"],
         default: "ok",
       },
-      lastChecked: {
-        type: Date,
-      },
-      riskFactors: [String], // An array to store reasons for being flagged
+      lastChecked: { type: Date },
+      riskFactors: [String],
     },
-
-    // --- NEW FIELD FOR FRAUD DETECTION ---
     flags: {
-      isFlaggedForFraud: {
-        type: Boolean,
-        default: false,
-      },
-      fraudReason: {
-        type: String,
-        default: "",
-      },
+      isFlaggedForFraud: { type: Boolean, default: false },
+      fraudReason: { type: String, default: "" },
     },
-    // --- FIELD FOR USER-SET LIMITS ---
     limits: {
       weeklyBetCount: {
-        limit: { type: Number, default: 0 }, // 0 means no limit
+        limit: { type: Number, default: 0 },
         currentCount: { type: Number, default: 0 },
         resetDate: {
           type: Date,
@@ -125,7 +93,7 @@ const userSchema = new mongoose.Schema(
         },
       },
       weeklyStakeAmount: {
-        limit: { type: Number, default: 0 }, // 0 means no limit
+        limit: { type: Number, default: 0 },
         currentAmount: { type: Number, default: 0 },
         resetDate: {
           type: Date,
@@ -133,13 +101,14 @@ const userSchema = new mongoose.Schema(
         },
       },
     },
-    // ------------------------------------
+    payoutDetails: {
+      // Correctly added here
+      type: payoutDetailsSchema,
+      default: {},
+    },
   },
   { timestamps: true }
 );
-
-// Indexes for username, email, googleId, and facebookId are automatically
-// created because the `unique` constraint is set to true.
 
 userSchema.virtual("fullName").get(function () {
   return `${this.firstName} ${this.lastName}`;
@@ -149,4 +118,3 @@ userSchema.set("toJSON", { virtuals: true });
 userSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("User", userSchema);
-// This code defines a Mongoose schema for a User model in a Node.js application.

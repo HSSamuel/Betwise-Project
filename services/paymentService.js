@@ -1,10 +1,13 @@
 // In: services/paymentService.js
 
+console.log("Flutterwave Public Key:", process.env.FLUTTERWAVE_PUBLIC_KEY);
+console.log("Flutterwave Secret Key:", process.env.FLUTTERWAVE_SECRET_KEY);
 const Flutterwave = require("flutterwave-node-v3");
 const flw = new Flutterwave(
   process.env.FLUTTERWAVE_PUBLIC_KEY,
   process.env.FLUTTERWAVE_SECRET_KEY
 );
+
 
 /**
  * Creates a Flutterwave payment link for a user deposit.
