@@ -2,7 +2,10 @@ const User = require("../models/User");
 const Bet = require("../models/Bet");
 const Game = require("../models/Game");
 const Transaction = require("../models/Transaction");
-const { query, validationResult } = require("express-validator"); // For input validation
+const Withdrawal = require("../models/Withdrawal");
+const { query, body, param, validationResult } = require("express-validator");
+const mongoose = require("mongoose");
+const { fetchAndSyncGames } = require("../services/sportsDataService");
 
 // Admin: Get basic platform statistics
 exports.getPlatformStats = async (req, res, next) => {
@@ -23,8 +26,7 @@ exports.getPlatformStats = async (req, res, next) => {
       totalTransactionsRecorded: totalTransactions,
     });
   } catch (err) {
-    // console.error("Error fetching platform stats:", err.message); // Handled by global error handler
-    next(err); // Pass error to centralized error handler
+    next(err);
   }
 };
 
@@ -34,7 +36,17 @@ exports.getFinancialDashboard = async (req, res, next) => {
     const financialData = await Transaction.aggregate([
       {
         $match: {
-          type: { $in: ["topup", "bet", "win", "refund"] },
+          type: {
+            $in: [
+              "topup",
+              "bet",
+              "win",
+              "refund",
+              "withdrawal",
+              "admin_credit",
+              "admin_debit",
+            ],
+          },
         },
       },
       {
@@ -55,34 +67,36 @@ exports.getFinancialDashboard = async (req, res, next) => {
     };
 
     financialData.forEach((transactionType) => {
-      if (transactionType._id === "topup") {
-        dashboardStats.totalTopUps = {
-          amount: transactionType.totalAmount || 0,
-          count: transactionType.count || 0,
-        };
-      } else if (transactionType._id === "bet") {
-        dashboardStats.totalStakes = {
-          amount: Math.abs(transactionType.totalAmount) || 0,
-          count: transactionType.count || 0,
-        };
-      } else if (transactionType._id === "win") {
-        dashboardStats.totalPayoutsToUsers = {
-          amount: transactionType.totalAmount || 0,
-          count: transactionType.count || 0,
-        };
-      } else if (transactionType._id === "refund") {
-        dashboardStats.totalRefunds = {
-          amount: transactionType.totalAmount || 0,
-          count: transactionType.count || 0,
-        };
+      const amount = transactionType.totalAmount || 0;
+      const count = transactionType.count || 0;
+      switch (transactionType._id) {
+        case "topup":
+        case "admin_credit":
+          dashboardStats.totalTopUps.amount += amount;
+          dashboardStats.totalTopUps.count += count;
+          break;
+        case "bet":
+          dashboardStats.totalStakes.amount += Math.abs(amount);
+          dashboardStats.totalStakes.count += count;
+          break;
+        case "win":
+          dashboardStats.totalPayoutsToUsers.amount += amount;
+          dashboardStats.totalPayoutsToUsers.count += count;
+          break;
+        case "refund":
+        case "withdrawal":
+        case "admin_debit":
+          dashboardStats.totalRefunds.amount += Math.abs(amount);
+          dashboardStats.totalRefunds.count += count;
+          break;
       }
     });
 
     dashboardStats.platformRevenue.amount =
       dashboardStats.totalStakes.amount -
-      dashboardStats.totalPayoutsToUsers.amount -
-      dashboardStats.totalRefunds.amount;
+      dashboardStats.totalPayoutsToUsers.amount;
 
+    // Format all amounts to 2 decimal places
     for (const key in dashboardStats) {
       if (dashboardStats[key].hasOwnProperty("amount")) {
         dashboardStats[key].amount = parseFloat(
@@ -93,12 +107,11 @@ exports.getFinancialDashboard = async (req, res, next) => {
 
     res.status(200).json(dashboardStats);
   } catch (err) {
-    // console.error("Error fetching financial dashboard:", err.message); // Handled by global error handler
     next(err);
   }
 };
 
-// Validation rules for listUsers
+// --- Validation rules ---
 exports.validateListUsers = [
   query("page")
     .optional()
@@ -112,50 +125,74 @@ exports.validateListUsers = [
     .optional()
     .isIn(["user", "admin"])
     .withMessage('Role must be either "user" or "admin".'),
-  query("sortBy")
+  query("sortBy").optional().isString().trim().escape(),
+  query("order").optional().isIn(["asc", "desc"]),
+  query("search").optional().isString().trim().escape(),
+  query("flagged")
     .optional()
-    .isString()
-    .trim()
-    .escape()
-    .withMessage("SortBy must be a string."), // Further validation could check against allowed fields
-  query("order")
-    .optional()
-    .isIn(["asc", "desc"])
-    .withMessage('Order must be "asc" or "desc".'),
-  query("search")
-    .optional()
-    .isString()
-    .trim()
-    .escape()
-    .withMessage("Search term must be a string."),
+    .isBoolean()
+    .withMessage("Flagged value must be true or false.")
+    .toBoolean(),
 ];
 
-// Admin: List users (with pagination)
+exports.validateAdminUserAction = [
+  param("id")
+    .isMongoId()
+    .withMessage("A valid user ID must be provided in the URL."),
+];
+
+exports.validateAdminUpdateRole = [
+  param("id")
+    .isMongoId()
+    .withMessage("A valid user ID must be provided in the URL."),
+  body("role")
+    .isIn(["user", "admin"])
+    .withMessage('Role must be either "user" or "admin".'),
+];
+
+exports.validateAdminAdjustWallet = [
+  param("id")
+    .isMongoId()
+    .withMessage("A valid user ID must be provided in the URL."),
+  body("amount")
+    .isFloat()
+    .withMessage(
+      "Amount must be a valid number (can be positive or negative)."
+    ),
+  body("description")
+    .notEmpty()
+    .trim()
+    .withMessage("A description for the adjustment is required."),
+];
+
+exports.validateProcessWithdrawal = [
+  param("id")
+    .isMongoId()
+    .withMessage("A valid withdrawal request ID must be provided in the URL."),
+  body("status")
+    .isIn(["approved", "rejected"])
+    .withMessage('Status must be either "approved" or "rejected".'),
+];
+
+// --- Controller functions ---
 exports.listUsers = async (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
-
   try {
     const {
       page = 1,
       limit = 10,
       role,
-      sortBy = "createdAt", // Default sort field
-      order = "desc", // Default sort order
+      sortBy = "createdAt",
+      order = "desc",
       search,
     } = req.query;
-
-    // Parsed and validated values
-    const queryPage = parseInt(page);
-    const queryLimit = parseInt(limit);
-    const skip = (queryPage - 1) * queryLimit;
-
     const filter = {};
     if (role) filter.role = role;
     if (search) {
-      const searchRegex = new RegExp(search, "i"); // Case-insensitive search
+      const searchRegex = new RegExp(search, "i");
       filter.$or = [
         { username: searchRegex },
         { email: searchRegex },
@@ -163,67 +200,298 @@ exports.listUsers = async (req, res, next) => {
         { lastName: searchRegex },
       ];
     }
-
-    // Basic protection against NoSQL injection for sortBy by ensuring it's a reasonable field name (alphanumeric)
-    // A more robust solution would be to whitelist allowed sortBy fields.
+    if (flagged !== undefined) {
+      filter["flags.isFlaggedForFraud"] = flagged;
+    }
     const safeSortBy = /^[a-zA-Z0-9_]+$/.test(sortBy) ? sortBy : "createdAt";
-
-    const sortOptions = {};
-    sortOptions[safeSortBy] = order === "asc" ? 1 : -1;
-
+    const sortOptions = { [safeSortBy]: order === "asc" ? 1 : -1 };
     const users = await User.find(filter)
-      .select("-password") // Exclude passwords
+      .select("-password")
       .sort(sortOptions)
-      .limit(queryLimit)
-      .skip(skip)
-      .lean(); // Use .lean() for faster queries when not modifying documents
-
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .lean();
     const totalUsers = await User.countDocuments(filter);
-
     res.json({
       users,
-      currentPage: queryPage,
-      totalPages: Math.ceil(totalUsers / queryLimit),
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalUsers / parseInt(limit)),
       totalCount: totalUsers,
     });
   } catch (err) {
-    // console.error("Error listing users:", err.message); // Handled by global error handler
     next(err);
   }
 };
 
-// Admin: Get all users with full details for specific needs
 exports.getAllUsersFullDetails = async (req, res, next) => {
   try {
-    // Consider adding pagination here as well if the number of users can be very large.
-    // For now, fetching all as per original function's intent.
-    const allUsers = await User.find({}).lean(); // Use .lean() for performance
-
-    const formattedUsers = allUsers.map((userObject) => {
-      // userObject is already a plain object due to .lean()
-      // 'verified' field is not in the current User.js model.
-      // If you add it to the model, it would be: verified: userObject.verified,
-      return {
-        _id: userObject._id,
-        role: userObject.role,
-        user: userObject.username, // Mapping 'username' to 'user'
-        email: userObject.email,
-        password: userObject.password, // Hashed password
-        firstName: userObject.firstName,
-        lastName: userObject.lastName,
-        state: userObject.state,
-        createdAt: userObject.createdAt,
-        updatedAt: userObject.updatedAt,
-        __v: userObject.__v,
-      };
-    });
-
+    const allUsers = await User.find({}).lean();
+    const formattedUsers = allUsers.map((userObject) => ({
+      _id: userObject._id,
+      role: userObject.role,
+      user: userObject.username,
+      email: userObject.email,
+      firstName: userObject.firstName,
+      lastName: userObject.lastName,
+      state: userObject.state,
+      createdAt: userObject.createdAt,
+      updatedAt: userObject.updatedAt,
+      __v: userObject.__v,
+    }));
     res.status(200).json({
-      msg: "Successfully fetched all user details.", // More descriptive message
+      msg: "Successfully fetched all user details.",
       allUser: formattedUsers,
     });
   } catch (err) {
-    // console.error("Error fetching all users full details:", err.message); // Handled by global error handler
     next(err);
+  }
+};
+
+exports.adminGetUserProfile = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select("-password");
+    if (!user) {
+      const err = new Error("User not found.");
+      err.statusCode = 404;
+      return next(err);
+    }
+    res.status(200).json(user);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.adminUpdateUserRole = async (req, res, next) => {
+  try {
+    const { role } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      const err = new Error("User not found.");
+      err.statusCode = 404;
+      return next(err);
+    }
+    user.role = role;
+    await user.save();
+    res
+      .status(200)
+      .json({ msg: `User ${user.username}'s role updated to ${role}.`, user });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.adminAdjustUserWallet = async (req, res, next) => {
+  const { amount, description } = req.body;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const user = await User.findById(req.params.id).session(session);
+    if (!user) throw new Error("User not found.");
+    user.walletBalance += amount;
+    if (user.walletBalance < 0)
+      throw new Error("Adjustment would result in a negative wallet balance.");
+    await new Transaction({
+      user: user._id,
+      type: amount > 0 ? "admin_credit" : "admin_debit",
+      amount: amount,
+      balanceAfter: user.walletBalance,
+      description: description || "Admin wallet adjustment.",
+    }).save({ session });
+    await user.save({ session });
+    await session.commitTransaction();
+    res.status(200).json({
+      msg: `User ${user.username}'s wallet adjusted by ${amount}. New balance: ${user.walletBalance}.`,
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    next(err);
+  } finally {
+    session.endSession();
+  }
+};
+
+exports.adminDeleteUser = async (req, res, next) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) {
+      const err = new Error("User not found.");
+      err.statusCode = 404;
+      return next(err);
+    }
+    res.status(200).json({
+      msg: `User ${user.username} and their associated data have been deleted.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.adminGetWithdrawals = async (req, res, next) => {
+  try {
+    const { status = "pending" } = req.query;
+    const withdrawals = await Withdrawal.find({ status: status }).populate(
+      "user",
+      "username email walletBalance"
+    );
+    res.status(200).json(withdrawals);
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.adminProcessWithdrawal = async (req, res, next) => {
+  const { status, adminNotes } = req.body;
+  const { id } = req.params;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const withdrawalRequest = await Withdrawal.findById(id)
+      .populate("user")
+      .session(session);
+    if (!withdrawalRequest) throw new Error("Withdrawal request not found.");
+    if (withdrawalRequest.status !== "pending")
+      throw new Error(
+        `This withdrawal request has already been ${withdrawalRequest.status}.`
+      );
+
+    withdrawalRequest.status = status;
+    withdrawalRequest.adminNotes = adminNotes;
+    withdrawalRequest.processedAt = new Date();
+
+    if (status === "approved") {
+      const user = withdrawalRequest.user;
+      if (user.walletBalance < withdrawalRequest.amount)
+        throw new Error(
+          "User no longer has sufficient funds for this withdrawal."
+        );
+      user.walletBalance -= withdrawalRequest.amount;
+      await new Transaction({
+        user: user._id,
+        type: "withdrawal",
+        amount: -withdrawalRequest.amount,
+        balanceAfter: user.walletBalance,
+        description: `Withdrawal of ${withdrawalRequest.amount} approved.`,
+      }).save({ session });
+      await user.save({ session });
+    }
+    await withdrawalRequest.save({ session });
+    await session.commitTransaction();
+    res.status(200).json({
+      msg: `Withdrawal request has been ${status}.`,
+      withdrawalRequest,
+    });
+  } catch (err) {
+    await session.abortTransaction();
+    next(err);
+  } finally {
+    session.endSession();
+  }
+};
+
+exports.manualGameSync = async (req, res, next) => {
+  const { leagueId } = req.body;
+  try {
+    if (leagueId) {
+      await fetchAndSyncGames(leagueId);
+      res.status(200).json({
+        msg: `Synchronization for league ID ${leagueId} has been successfully triggered.`,
+      });
+    } else {
+      await fetchAndSyncGames();
+      res.status(200).json({
+        msg: "Bulk synchronization of all default leagues has been successfully triggered.",
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- NEW FUNCTION for Platform Risk Analysis ---
+exports.getGameRiskAnalysis = async (req, res, next) => {
+  try {
+    const { id: gameId } = req.params;
+
+    const riskPipeline = [
+      // 1. Find all pending bets for the specified game
+      {
+        $match: {
+          game: new mongoose.Types.ObjectId(gameId),
+          status: "pending",
+        },
+      },
+      // 2. Calculate the potential payout for each bet
+      {
+        $project: {
+          stake: 1,
+          outcome: 1,
+          potentialPayout: {
+            $switch: {
+              branches: [
+                {
+                  case: { $eq: ["$outcome", "A"] },
+                  then: { $multiply: ["$stake", "$oddsAtTimeOfBet.home"] },
+                },
+                {
+                  case: { $eq: ["$outcome", "B"] },
+                  then: { $multiply: ["$stake", "$oddsAtTimeOfBet.away"] },
+                },
+                {
+                  case: { $eq: ["$outcome", "Draw"] },
+                  then: { $multiply: ["$stake", "$oddsAtTimeOfBet.draw"] },
+                },
+              ],
+              default: 0,
+            },
+          },
+        },
+      },
+      // 3. Group by outcome and sum the stakes and potential payouts
+      {
+        $group: {
+          _id: "$outcome", // Group by A, B, or Draw
+          totalStake: { $sum: "$stake" },
+          totalPotentialPayout: { $sum: "$potentialPayout" },
+          betCount: { $sum: 1 },
+        },
+      },
+    ];
+
+    const riskAnalysis = await Bet.aggregate(riskPipeline);
+
+    // Format the response for clarity
+    const formattedResponse = {
+      gameId,
+      totalExposure: 0,
+      outcomes: {
+        A: { totalStake: 0, totalPotentialPayout: 0, betCount: 0 },
+        B: { totalStake: 0, totalPotentialPayout: 0, betCount: 0 },
+        Draw: { totalStake: 0, totalPotentialPayout: 0, betCount: 0 },
+      },
+    };
+
+    riskAnalysis.forEach((outcome) => {
+      formattedResponse.outcomes[outcome._id] = {
+        totalStake: parseFloat(outcome.totalStake.toFixed(2)),
+        totalPotentialPayout: parseFloat(
+          outcome.totalPotentialPayout.toFixed(2)
+        ),
+        betCount: outcome.betCount,
+      };
+    });
+
+    // Calculate the total potential payout across all outcomes
+    formattedResponse.totalExposure = parseFloat(
+      Object.values(formattedResponse.outcomes)
+        .reduce((sum, outcome) => sum + outcome.totalPotentialPayout, 0)
+        .toFixed(2)
+    );
+
+    res.status(200).json({
+      message: "Platform risk analysis for game.",
+      analysis: formattedResponse,
+    });
+  } catch (error) {
+    next(error);
   }
 };

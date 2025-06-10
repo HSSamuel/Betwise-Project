@@ -2,39 +2,61 @@ const express = require("express");
 const router = express.Router();
 const { auth } = require("../middleware/authMiddleware");
 const {
+  handleValidationErrors,
+} = require("../middleware/validationMiddleware");
+
+// CORRECTED: Imports now include the Flutterwave deposit functions and remove the old topUpWallet
+const {
   getWallet,
-  topUpWallet,
   getTransactionHistory,
   getWalletSummary,
-} = require("../controllers/walletController");
-const {
-  validateTopUpWallet,
+  requestWithdrawal,
+  initializeDeposit,
+  handleFlutterwaveWebhook,
+  validateInitializeDeposit,
   validateGetTransactionHistory,
+  validateRequestWithdrawal,
 } = require("../controllers/walletController");
 
-// @route   GET /wallet
-// @desc    Get current user's wallet balance and basic info
-// @access  Private (Authenticated User)
+// --- GET Routes for wallet info ---
 router.get("/", auth, getWallet);
-
-// @route   POST /wallet/topup
-// @desc    Top up current user's wallet
-// @access  Private (Authenticated User)
-router.post("/topup", auth, validateTopUpWallet, topUpWallet);
-
-// @route   GET /wallet/transactions
-// @desc    Get transaction history for the current user (paginated, filterable)
-// @access  Private (Authenticated User)
+router.get("/summary", auth, getWalletSummary);
 router.get(
   "/transactions",
   auth,
   validateGetTransactionHistory,
+  handleValidationErrors,
   getTransactionHistory
 );
 
-// @route   GET /wallet/summary
-// @desc    Get a summary of the user's wallet activity (topups, bets, wins)
+// --- POST Routes for Payments & Withdrawals ---
+
+// @route   POST /wallet/deposit/initialize
+// @desc    User initiates a deposit to get a Flutterwave payment link
 // @access  Private (Authenticated User)
-router.get("/summary", auth, getWalletSummary);
+router.post(
+  "/deposit/initialize",
+  auth,
+  validateInitializeDeposit,
+  handleValidationErrors,
+  initializeDeposit
+);
+
+// @route   POST /wallet/deposit/webhook
+// @desc    Webhook endpoint for Flutterwave to send payment confirmations
+// @access  Public (but verified with a secret hash)
+router.post("/deposit/webhook", handleFlutterwaveWebhook);
+
+// @route   POST /wallet/request-withdrawal
+// @desc    User requests a withdrawal of funds
+// @access  Private (Authenticated User)
+router.post(
+  "/request-withdrawal",
+  auth,
+  validateRequestWithdrawal,
+  handleValidationErrors,
+  requestWithdrawal
+);
 
 module.exports = router;
+// This router handles all wallet-related routes, including deposits and withdrawals.

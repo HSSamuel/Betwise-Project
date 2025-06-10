@@ -10,9 +10,16 @@ const transactionSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: {
-        values: ["bet", "win", "topup", "refund"],
-        message:
-          'Transaction type "{VALUE}" is not supported. Must be bet, win, topup, or refund.', // Custom enum message
+        values: [
+          "bet",
+          "win",
+          "topup",
+          "refund",
+          "withdrawal",
+          "admin_credit",
+          "admin_debit",
+        ], // <-- ADDED ADMIN TYPES
+        message: 'Transaction type "{VALUE}" is not supported.',
       },
       required: [true, "Transaction type is required."],
     },

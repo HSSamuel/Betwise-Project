@@ -22,26 +22,37 @@ const oddsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// --- SUB-SCHEMA for Historical Odds ---
+const oddsHistorySchema = new mongoose.Schema({
+  odds: {
+    type: oddsSchema,
+    required: true,
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
 const gameSchema = new mongoose.Schema(
   {
     homeTeam: {
       type: String,
       required: [true, "Home team name is required."],
       trim: true,
-      // Example: Add minlength/maxlength if desired
-      // minlength: [2, "Home team name must be at least 2 characters long."],
-      // maxlength: [100, "Home team name cannot exceed 100 characters."]
     },
     awayTeam: {
       type: String,
       required: [true, "Away team name is required."],
       trim: true,
-      // minlength: [2, "Away team name must be at least 2 characters long."],
-      // maxlength: [100, "Away team name cannot exceed 100 characters."]
     },
     odds: {
       type: oddsSchema,
       required: [true, "Odds (home, away, draw) are required."],
+    },
+    oddsHistory: {
+      type: [oddsHistorySchema],
+      default: [],
     },
     result: {
       type: String,
@@ -56,8 +67,6 @@ const gameSchema = new mongoose.Schema(
       type: String,
       required: [true, "League name is required."],
       trim: true,
-      // minlength: [2, "League name must be at least 2 characters long."],
-      // maxlength: [100, "League name cannot exceed 100 characters."]
     },
     matchDate: {
       type: Date,
@@ -72,18 +81,26 @@ const gameSchema = new mongoose.Schema(
       },
       default: "upcoming",
     },
+    summary: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    externalApiId: {
+      type: String,
+      unique: true, // This automatically creates the index we need
+      sparse: true,
+    },
   },
   { timestamps: true }
 );
 
-// Ensure that a game cannot have the same home and away team (case-insensitive)
 gameSchema.pre("save", function (next) {
   if (
     this.homeTeam &&
     this.awayTeam &&
     this.homeTeam.trim().toLowerCase() === this.awayTeam.trim().toLowerCase()
   ) {
-    // Using trim() here as well to be safe, though schema has trim:true
     next(new Error("Home team and away team cannot be the same."));
   } else {
     next();
@@ -92,8 +109,8 @@ gameSchema.pre("save", function (next) {
 
 // Index for faster querying of games by date and status
 gameSchema.index({ matchDate: 1, status: 1 });
-// Consider adding other indexes based on frequent query patterns, e.g.:
-// gameSchema.index({ league: 1, status: 1 });
-// gameSchema.index({ league: 1, matchDate: 1 });
+
+// REMOVED this redundant line:
+// gameSchema.index({ externalApiId: 1 });
 
 module.exports = mongoose.model("Game", gameSchema);

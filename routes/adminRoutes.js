@@ -1,3 +1,5 @@
+// adminRoutes.js
+
 const express = require("express");
 const router = express.Router();
 const { auth, isAdmin } = require("../middleware/authMiddleware");
@@ -5,44 +7,105 @@ const {
   getPlatformStats,
   getFinancialDashboard,
   listUsers,
-  getAllUsersFullDetails, // Import the new function
+  getAllUsersFullDetails,
+  adminGetUserProfile,
+  adminUpdateUserRole,
+  adminAdjustUserWallet,
+  adminDeleteUser,
+  adminGetWithdrawals,
+  adminProcessWithdrawal,
+  validateListUsers,
+  validateAdminUserAction,
+  validateAdminUpdateRole,
+  validateAdminAdjustWallet,
+  validateProcessWithdrawal,
+  getGameRiskAnalysis,
 } = require("../controllers/adminController");
-const gameController = require("../controllers/gameController"); // For game management routes under admin
-const { validateListUsers } = require("../controllers/adminController");
+const { manualGameSync } = require("../controllers/adminController");
+const { validateGameId } = require("../controllers/gameController");
 
 // --- Admin Dashboard & Stats ---
-
-// @route   GET /admin/dashboard
-// @desc    Admin: Get financial dashboard (totals of topups, bets, wins, revenue)
-// @access  Private (Admin)
 router.get("/dashboard/financial", auth, isAdmin, getFinancialDashboard);
-
-// @route   GET /admin/stats
-// @desc    Admin: Get platform statistics (users, bets, games)
-// @access  Private (Admin)
 router.get("/stats/platform", auth, isAdmin, getPlatformStats);
 
 // --- User Management by Admin ---
-
-// @route   GET /admin/users
-// @desc    Admin: List all users (with pagination and filtering)
-// @access  Private (Admin)
 router.get("/users", auth, isAdmin, validateListUsers, listUsers);
-
-// @route   GET /admin/all-users-full
-// @desc    Admin: Get all users with full details (including password)
-// @access  Private (Admin)
 router.get("/all-users-full", auth, isAdmin, getAllUsersFullDetails);
 
-// Future Admin User Management Routes:
-// router.get("/users/:userId", auth, isAdmin, adminGetUserProfile);
-// router.put("/users/:userId/role", auth, isAdmin, adminUpdateUserRole);
-// router.put("/users/:userId/wallet", auth, isAdmin, adminAdjustUserWallet);
-// router.delete("/users/:userId", auth, isAdmin, adminDeleteUser);
+// @route   GET /admin/users/:id
+// @desc    Admin: Get a single user's profile
+// @access  Private (Admin)
+router.get(
+  "/users/:id",
+  auth,
+  isAdmin,
+  validateAdminUserAction,
+  adminGetUserProfile
+);
 
-// --- Game Management by Admin (already in gameRoutes.js, but could be aliased or specific admin actions here) ---
-// Example: if you want /admin/games routes specifically for admin game views or bulk actions
-// router.get("/games", auth, isAdmin, gameController.getGames); // Admin view of games, potentially more details
-// router.post("/games/bulk-update-odds", auth, isAdmin, adminBulkUpdateOdds);
+// @route   PATCH /admin/users/:id/role
+// @desc    Admin: Update a user's role
+// @access  Private (Admin)
+router.patch(
+  "/users/:id/role",
+  auth,
+  isAdmin,
+  validateAdminUpdateRole,
+  adminUpdateUserRole
+);
+
+// @route   PATCH /admin/users/:id/wallet
+// @desc    Admin: Manually adjust a user's wallet balance
+// @access  Private (Admin)
+router.patch(
+  "/users/:id/wallet",
+  auth,
+  isAdmin,
+  validateAdminAdjustWallet,
+  adminAdjustUserWallet
+);
+
+// @route   DELETE /admin/users/:id
+// @desc    Admin: Delete a user
+// @access  Private (Admin)
+router.delete(
+  "/users/:id",
+  auth,
+  isAdmin,
+  validateAdminUserAction,
+  adminDeleteUser
+);
+
+// --- Withdrawal Management by Admin ---
+
+// @route   GET /admin/withdrawals
+// @desc    Admin: Get all withdrawal requests (defaults to pending)
+// @access  Private (Admin)
+router.get("/withdrawals", auth, isAdmin, adminGetWithdrawals);
+
+// @route   PATCH /admin/withdrawals/:id/process
+// @desc    Admin: Approve or reject a withdrawal request
+// @access  Private (Admin)
+router.patch(
+  "/withdrawals/:id/process",
+  auth,
+  isAdmin,
+  validateProcessWithdrawal,
+  adminProcessWithdrawal
+);
+
+router.post("/games/sync", auth, isAdmin, manualGameSync);
+
+// @route   GET /admin/games/:id/risk
+// @desc    Admin: Get a risk analysis for a specific game
+// @access  Private (Admin)
+router.get(
+  "/games/:id/risk",
+  auth,
+  isAdmin,
+  validateGameId,
+  getGameRiskAnalysis
+);
 
 module.exports = router;
+// This code defines the routes for admin functionalities in an Express application.

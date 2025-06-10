@@ -1,10 +1,8 @@
 const { body, validationResult } = require("express-validator");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
-// const Bet = require("../models/Bet"); // Removed if not used
-// const Transaction = require("../models/Transaction"); // Removed if not used
 
-// --- Validation Rules ---
+// --- Validation Rules (No changes needed here) ---
 exports.validateChangeEmail = [
   body("newEmail")
     .isEmail()
@@ -15,6 +13,57 @@ exports.validateChangeEmail = [
     .withMessage("Current password is required."),
 ];
 
+exports.setPassword = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  const { newPassword } = req.body;
+  const userId = req.user._id; // Get user ID from their auth token
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      const err = new Error("User not found.");
+      err.statusCode = 404;
+      return next(err);
+    }
+
+    // Check if user already has a password. If so, they should use the "change password" flow instead.
+    if (user.password) {
+      const err = new Error(
+        "This account already has a password. Please use the 'change password' feature."
+      );
+      err.statusCode = 400;
+      return next(err);
+    }
+
+    // Hash and set the new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    await user.save();
+
+    res.json({
+      msg: "Password has been successfully created for your account.",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.validateSetPassword = [
+  body("newPassword")
+    .isLength({ min: 6 })
+    .withMessage("Password must be at least 6 characters long."),
+  body("confirmPassword").custom((value, { req }) => {
+    if (value !== req.body.newPassword) {
+      throw new Error("Passwords do not match.");
+    }
+    return true;
+  }),
+];
+
 exports.validateChangePassword = [
   body("currentPassword")
     .notEmpty()
@@ -22,9 +71,6 @@ exports.validateChangePassword = [
   body("newPassword")
     .isLength({ min: 6 })
     .withMessage("New password must be at least 6 characters long."),
-  // Optional: Add custom password complexity rules here if desired
-  // .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/)
-  // .withMessage('Password must be at least 8 characters long and include uppercase, lowercase, and a number.'),
   body("confirmNewPassword").custom((value, { req }) => {
     if (value !== req.body.newPassword) {
       throw new Error("New password and confirmation password do not match.");
@@ -33,14 +79,56 @@ exports.validateChangePassword = [
   }),
 ];
 
+exports.validateSetLimits = [
+  body("weeklyBetCountLimit")
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage("Bet count limit must be a positive number or 0."),
+  body("weeklyStakeAmountLimit")
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage("Stake amount limit must be a positive number or 0."),
+];
+
+exports.setBettingLimits = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const { weeklyBetCountLimit, weeklyStakeAmountLimit } = req.body;
+    const user = await User.findById(req.user._id);
+
+    const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    if (weeklyBetCountLimit !== undefined) {
+      user.limits.weeklyBetCount.limit = weeklyBetCountLimit;
+      user.limits.weeklyBetCount.currentCount = 0; // Reset counter
+      user.limits.weeklyBetCount.resetDate = sevenDaysFromNow;
+    }
+    if (weeklyStakeAmountLimit !== undefined) {
+      user.limits.weeklyStakeAmount.limit = weeklyStakeAmountLimit;
+      user.limits.weeklyStakeAmount.currentAmount = 0; // Reset counter
+      user.limits.weeklyStakeAmount.resetDate = sevenDaysFromNow;
+    }
+
+    await user.save();
+    res.status(200).json({
+      message: "Your betting limits have been updated successfully.",
+      limits: user.limits,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Get current user's profile
 exports.getProfile = async (req, res, next) => {
   try {
-    // req.user is populated by auth middleware.
-    // Password should already be excluded by auth middleware if .select('-password') was used there.
-    // Or, it is excluded by default if select: false in User model schema.
-    // However, re-selecting here ensures it if not handled elsewhere.
-    const user = await User.findById(req.user.id).select("-password").lean(); // Use lean for performance
+    // FIX #2: Use req.user._id instead of req.user.id
+    const user = await User.findById(req.user._id).select("-password").lean();
+
     if (!user) {
       const err = new Error("User profile not found.");
       err.statusCode = 404;
@@ -59,12 +147,14 @@ exports.changeEmail = async (req, res, next) => {
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const { newEmail, currentPassword } = req.body; // newEmail is already normalized
+  const { newEmail, currentPassword } = req.body;
 
   try {
-    const user = await User.findById(req.user.id); // Need full document to compare password
+    // FIX #1 & #2: Use req.user._id AND add .select('+password')
+    const user = await User.findById(req.user._id).select("+password");
+
     if (!user) {
-      const err = new Error("User not found."); // Should be rare if token is valid
+      const err = new Error("User not found.");
       err.statusCode = 404;
       return next(err);
     }
@@ -77,7 +167,6 @@ exports.changeEmail = async (req, res, next) => {
     }
 
     if (newEmail === user.email) {
-      // user.email should be consistently lowercase from registration/updates
       const err = new Error(
         "New email cannot be the same as the current email."
       );
@@ -85,22 +174,20 @@ exports.changeEmail = async (req, res, next) => {
       return next(err);
     }
 
-    // Check if the new email is already in use by ANOTHER user
     const emailExists = await User.findOne({ email: newEmail });
     if (emailExists && emailExists._id.toString() !== user._id.toString()) {
       const err = new Error(
         "This email address is already in use by another account."
       );
-      err.statusCode = 400; // Conflict or Bad Request
+      err.statusCode = 400;
       return next(err);
     }
 
-    user.email = newEmail; // newEmail is already lowercased by normalizeEmail()
+    user.email = newEmail;
     await user.save();
 
     res.json({ msg: "Email updated successfully." });
   } catch (error) {
-    // Handle potential race condition for unique email index (though less likely with prior checks)
     if (error.code === 11000) {
       const customError = new Error("This email address is already in use.");
       customError.statusCode = 400;
@@ -117,10 +204,12 @@ exports.changePassword = async (req, res, next) => {
     return res.status(400).json({ errors: errors.array() });
   }
 
-  const { currentPassword, newPassword } = req.body; // confirmNewPassword used in validator
+  const { currentPassword, newPassword } = req.body;
 
   try {
-    const user = await User.findById(req.user.id);
+    // FIX #1 & #2: Use req.user._id AND add .select('+password')
+    const user = await User.findById(req.user._id).select("+password");
+
     if (!user) {
       const err = new Error("User not found.");
       err.statusCode = 404;
@@ -137,7 +226,6 @@ exports.changePassword = async (req, res, next) => {
       return next(err);
     }
 
-    // Check if new password is the same as the old one
     const isNewPasswordSameAsOld = await bcrypt.compare(
       newPassword,
       user.password
@@ -152,7 +240,6 @@ exports.changePassword = async (req, res, next) => {
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
-    // user.passwordChangedAt = Date.now(); // Optional: for security logging or invalidating old tokens
     await user.save();
 
     res.json({ msg: "Password updated successfully." });

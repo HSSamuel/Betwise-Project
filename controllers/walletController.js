@@ -1,40 +1,120 @@
 const { body, query, validationResult } = require("express-validator");
-const mongoose = require("mongoose"); // For ObjectId in aggregation
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Transaction = require("../models/Transaction");
+const Withdrawal = require("../models/Withdrawal");
+const {
+  createPaymentLink,
+  verifyWebhookSignature,
+} = require("../services/paymentService");
 
 // --- Validation Rules ---
-exports.validateTopUpWallet = [
+
+exports.validateInitializeDeposit = [
   body("amount")
-    .isFloat({ gt: 0, lt: 100000 })
-    .withMessage("Top-up amount must be a positive number less than 100,000.")
-    .toFloat(), // Example max limit
+    .isFloat({ gt: 99 })
+    .withMessage("Deposit amount must be at least 100 NGN.")
+    .toFloat(),
 ];
 
 exports.validateGetTransactionHistory = [
   query("type")
     .optional()
-    .isIn(["bet", "win", "topup", "refund"])
-    .withMessage("Invalid transaction type."),
-  query("limit")
-    .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage("Limit must be an integer between 1 and 100.")
-    .toInt(),
-  query("page")
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage("Page must be a positive integer.")
-    .toInt(),
+    .isIn([
+      "bet",
+      "win",
+      "topup",
+      "refund",
+      "withdrawal",
+      "admin_credit",
+      "admin_debit",
+    ]),
+  query("limit").optional().isInt({ min: 1, max: 100 }),
+  query("page").optional().isInt({ min: 1 }),
 ];
 
-// Get current user's wallet balance
+exports.validateRequestWithdrawal = [
+  body("amount")
+    .isFloat({ gt: 0 })
+    .withMessage("Withdrawal amount must be a positive number.")
+    .toFloat(),
+];
+
+// --- Controller Functions ---
+
+// NEW: Handles starting a deposit via Flutterwave
+exports.initializeDeposit = async (req, res, next) => {
+  // Note: The validation error check is now handled by middleware in the route.
+  try {
+    const { amount } = req.body;
+    const user = await User.findById(req.user._id);
+
+    const paymentLink = await createPaymentLink(
+      amount,
+      user.email,
+      user.fullName,
+      user._id
+    );
+
+    res.status(200).json({
+      message: "Payment link created successfully. Please redirect the user.",
+      paymentLink,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// NEW: Handles the confirmation webhook from Flutterwave
+exports.handleFlutterwaveWebhook = async (req, res, next) => {
+  const signature = req.headers["verif-hash"];
+  if (!signature || !verifyWebhookSignature(signature)) {
+    return res.status(401).send("Unauthorized");
+  }
+
+  const payload = req.body;
+
+  if (payload.status === "successful" && payload.event === "charge.completed") {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      const userId = payload.data.tx_ref.split("-")[2];
+      const amount = payload.data.amount;
+      const user = await User.findById(userId).session(session);
+
+      if (user) {
+        user.walletBalance += amount;
+        await user.save({ session });
+
+        await new Transaction({
+          user: user._id,
+          type: "topup",
+          amount: amount,
+          balanceAfter: user.walletBalance,
+          description: `Wallet top-up via Flutterwave. Ref: ${payload.data.flw_ref}`,
+        }).save({ session });
+
+        console.log(
+          `✅ Webhook processed for user ${userId}. Wallet topped up by ${amount}.`
+        );
+      }
+      await session.commitTransaction();
+    } catch (error) {
+      await session.abortTransaction();
+      console.error("Webhook processing error:", error);
+      return res.status(500).send("Error processing webhook.");
+    } finally {
+      session.endSession();
+    }
+  }
+  res.status(200).send("Webhook received.");
+};
+
 exports.getWallet = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id)
+    const user = await User.findById(req.user._id)
       .select("walletBalance username email")
-      .lean(); // Use lean for read-only
-
+      .lean();
     if (!user) {
       const err = new Error("User wallet data not found.");
       err.statusCode = 404;
@@ -43,72 +123,20 @@ exports.getWallet = async (req, res, next) => {
     res.json({
       username: user.username,
       email: user.email,
-      walletBalance: parseFloat(user.walletBalance.toFixed(2)), // Ensure formatted output
+      walletBalance: parseFloat(user.walletBalance.toFixed(2)),
     });
   } catch (error) {
     next(error);
   }
 };
 
-// Top up current user's wallet
-exports.topUpWallet = async (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
-  const { amount } = req.body; // Amount is already validated and converted to float by express-validator
-
-  try {
-    const user = await User.findById(req.user.id); // Need full document to save
-    if (!user) {
-      const err = new Error("User not found for wallet top-up.");
-      err.statusCode = 404;
-      return next(err);
-    }
-
-    user.walletBalance += amount;
-    user.walletBalance = parseFloat(user.walletBalance.toFixed(2)); // Ensure precision
-
-    await user.save();
-
-    const transaction = new Transaction({
-      user: user._id,
-      type: "topup",
-      amount: parseFloat(amount.toFixed(2)), // Store validated amount with precision
-      balanceAfter: user.walletBalance,
-      description: `Wallet top-up of ${amount.toFixed(2)}`,
-    });
-    await transaction.save();
-
-    res.status(200).json({
-      msg: "Wallet topped up successfully.",
-      walletBalance: user.walletBalance,
-      transactionId: transaction._id,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Get transaction history for the current user
 exports.getTransactionHistory = async (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
   try {
-    const { type } = req.query;
-    const limit = req.query.limit || 10; // Defaults if not provided, already validated
-    const page = req.query.page || 1;
+    const { type, page = 1, limit = 10 } = req.query;
+    const filter = { user: req.user._id };
+    if (type) filter.type = type;
+
     const skip = (page - 1) * limit;
-
-    const filter = { user: req.user.id };
-    if (type) {
-      filter.type = type;
-    }
-
     const transactions = await Transaction.find(filter)
       .sort({ createdAt: -1 })
       .populate({ path: "game", select: "homeTeam awayTeam" })
@@ -118,7 +146,6 @@ exports.getTransactionHistory = async (req, res, next) => {
       .lean();
 
     const totalTransactions = await Transaction.countDocuments(filter);
-
     res.json({
       transactions,
       currentPage: page,
@@ -130,16 +157,24 @@ exports.getTransactionHistory = async (req, res, next) => {
   }
 };
 
-// Get wallet summary for the current user
 exports.getWalletSummary = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-
+    const userId = req.user._id;
     const summaryPipeline = [
       {
         $match: {
-          user: new mongoose.Types.ObjectId(userId), // Ensure userId is ObjectId
-          type: { $in: ["topup", "bet", "win", "refund"] },
+          user: new mongoose.Types.ObjectId(userId),
+          type: {
+            $in: [
+              "topup",
+              "bet",
+              "win",
+              "refund",
+              "withdrawal",
+              "admin_credit",
+              "admin_debit",
+            ],
+          },
         },
       },
       {
@@ -152,7 +187,6 @@ exports.getWalletSummary = async (req, res, next) => {
     ];
 
     const results = await Transaction.aggregate(summaryPipeline);
-
     const summary = {
       totalTopUps: { amount: 0, count: 0 },
       totalBetsPlaced: { amount: 0, count: 0 },
@@ -163,29 +197,83 @@ exports.getWalletSummary = async (req, res, next) => {
     };
 
     results.forEach((item) => {
-      const amount = parseFloat((item.totalAmount || 0).toFixed(2));
+      const amount = item.totalAmount || 0;
       const count = item.count || 0;
-      if (item._id === "topup") {
-        summary.totalTopUps = { amount, count };
-      } else if (item._id === "bet") {
-        summary.totalBetsPlaced = { amount: Math.abs(amount), count }; // Bets are negative
-      } else if (item._id === "win") {
-        summary.totalWinnings = { amount, count };
-      } else if (item._id === "refund") {
-        summary.totalRefunds = { amount, count };
+      switch (item._id) {
+        case "topup":
+        case "admin_credit":
+          summary.totalTopUps.amount += amount;
+          summary.totalTopUps.count += count;
+          break;
+        case "bet":
+          summary.totalBetsPlaced.amount += Math.abs(amount);
+          summary.totalBetsPlaced.count += count;
+          break;
+        case "win":
+          summary.totalWinnings.amount += amount;
+          summary.totalWinnings.count += count;
+          break;
+        case "refund":
+        case "withdrawal":
+        case "admin_debit":
+          summary.totalRefunds.amount += Math.abs(amount);
+          summary.totalRefunds.count += count;
+          break;
       }
     });
 
-    summary.netGamblingResult = parseFloat(
-      (summary.totalWinnings.amount - summary.totalBetsPlaced.amount).toFixed(2)
-    );
-
+    summary.netGamblingResult =
+      summary.totalWinnings.amount - summary.totalBetsPlaced.amount;
     const user = await User.findById(userId).select("walletBalance").lean();
-    summary.currentWalletBalance = user
-      ? parseFloat(user.walletBalance.toFixed(2))
-      : 0;
+    summary.currentWalletBalance = user ? user.walletBalance : 0;
+
+    // Format all amounts to 2 decimal places for the final response
+    for (const key in summary) {
+      if (summary[key] && summary[key].hasOwnProperty("amount")) {
+        summary[key].amount = parseFloat(summary[key].amount.toFixed(2));
+      } else if (typeof summary[key] === "number") {
+        summary[key] = parseFloat(summary[key].toFixed(2));
+      }
+    }
 
     res.json(summary);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.requestWithdrawal = async (req, res, next) => {
+  try {
+    const { amount } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      const err = new Error("User not found.");
+      err.statusCode = 404;
+      return next(err);
+    }
+    if (user.walletBalance < amount) {
+      const err = new Error("Insufficient funds for withdrawal.");
+      err.statusCode = 400;
+      return next(err);
+    }
+    const existingPending = await Withdrawal.findOne({
+      user: user._id,
+      status: "pending",
+    });
+    if (existingPending) {
+      const err = new Error("You already have a pending withdrawal request.");
+      err.statusCode = 400;
+      return next(err);
+    }
+    const withdrawalRequest = new Withdrawal({
+      user: user._id,
+      amount: amount,
+    });
+    await withdrawalRequest.save();
+    res.status(201).json({
+      msg: "Withdrawal request submitted successfully.",
+      withdrawalRequest,
+    });
   } catch (error) {
     next(error);
   }

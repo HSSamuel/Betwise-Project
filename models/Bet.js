@@ -1,45 +1,78 @@
+// In: models/Bet.js
+
 const mongoose = require("mongoose");
+
+// This new sub-schema will represent a single pick within a multi-bet.
+const selectionSchema = new mongoose.Schema(
+  {
+    game: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Game",
+      required: true,
+    },
+    outcome: {
+      // The user's predicted outcome for this specific game
+      type: String,
+      enum: ["A", "B", "Draw"],
+      required: true,
+    },
+    odds: {
+      // The odds for this specific selection at the time of the bet
+      type: Number,
+      required: true,
+      min: 1,
+    },
+  },
+  { _id: false }
+);
 
 const BetSchema = new mongoose.Schema(
   {
     user: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // Reference to the User model
+      ref: "User",
       required: true,
     },
-    game: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Game", // Reference to the Game model
-      required: true,
-    },
-    outcome: {
-      // The user's predicted outcome
+    betType: {
       type: String,
-      enum: ["A", "B", "Draw"], // A for home team win, B for away team win
-      required: [true, "Outcome is required"],
+      enum: ["single", "multi"],
+      required: true,
+      default: "single",
     },
     stake: {
       type: Number,
-      required: [true, "Stake is required"],
-      min: [0.01, "Stake must be a positive amount"], // Minimum stake amount
+      required: true,
+      min: [0.01, "Stake must be a positive amount"],
+    },
+    totalOdds: {
+      // For multi-bets, this is the product of all selection odds
+      type: Number,
+      required: true,
+    },
+    // This array will hold all the selections for a multi-bet
+    selections: {
+      type: [selectionSchema],
+      default: [],
     },
     payout: {
-      // Potential or actual payout
       type: Number,
       default: 0,
-      min: [0, "Payout cannot be negative"],
     },
     status: {
       type: String,
-      enum: ["pending", "won", "lost", "cancelled"], // Status of the bet
+      enum: ["pending", "won", "lost", "cancelled"],
       default: "pending",
     },
+    // --- LEGACY FIELDS for single bets (optional, for backward compatibility) ---
+    // We keep these so your old single bets don't break. New single bets will also use the 'selections' array.
+    game: { type: mongoose.Schema.Types.ObjectId, ref: "Game" },
+    outcome: { type: String, enum: ["A", "B", "Draw"] },
+    oddsAtTimeOfBet: { home: Number, away: Number, draw: Number },
   },
-  { timestamps: true } // Automatically adds createdAt and updatedAt fields
+  { timestamps: true }
 );
 
-// Index for querying bets by user and game
-BetSchema.index({ user: 1, game: 1 });
-BetSchema.index({ game: 1, status: 1 }); // For resolving bets efficiently
+BetSchema.index({ user: 1, status: 1 });
+BetSchema.index({ status: 1, "selections.game": 1 }); // Helps find bets that include a specific game
 
 module.exports = mongoose.model("Bet", BetSchema);

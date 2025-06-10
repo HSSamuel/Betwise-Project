@@ -1,4 +1,3 @@
-// THIS MUST BE THE VERY FIRST LINE
 require("dotenv").config({
   path: require("path").resolve(__dirname, "../.env"), // Assuming .env is in parent directory
 });

@@ -5,6 +5,7 @@ const nodemailer = require("nodemailer");
 const { body, validationResult } = require("express-validator");
 const User = require("../models/User");
 const TokenBlacklist = require("../models/TokenBlacklist");
+const { sendEmail } = require("../services/emailService"); // <-- IMPORT from new service
 
 // --- Helper Functions ---
 const generateAccessToken = (user) => {
@@ -21,34 +22,7 @@ const generateRefreshToken = (user) => {
   });
 };
 
-const sendEmail = async (options) => {
-  const transporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-  const mailOptions = {
-    from:
-      process.env.EMAIL_FROM ||
-      `"${process.env.EMAIL_FROM_NAME || "BetWise Support"}" <${
-        process.env.EMAIL_USER
-      }>`,
-    to: options.email,
-    subject: options.subject,
-    text: options.message,
-  };
-  try {
-    await transporter.sendMail(mailOptions);
-  } catch (error) {
-    throw new Error(
-      "Email could not be sent due to a server configuration issue."
-    );
-  }
-};
-
-// --- Validation Rules (No Changes Here) ---
+// --- Validation Rules ---
 exports.validateRegister = [
   body("username")
     .trim()
@@ -168,6 +142,18 @@ exports.login = async (req, res, next) => {
       err.statusCode = 401;
       return next(err);
     }
+
+    // --- ADDED THIS BLOCK ---
+    // Check if the user registered via social media (i.e., has no password)
+    if (!user.password) {
+      const err = new Error(
+        "This account was created using a social login. Please sign in with Google or Facebook."
+      );
+      err.statusCode = 400; // Bad Request, as they are using the wrong login method
+      return next(err);
+    }
+    // --- END ADDED BLOCK ---
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       const err = new Error("Invalid credentials.");
@@ -236,35 +222,42 @@ exports.refreshToken = async (req, res, next) => {
 };
 
 // --- Social Login Callback ---
-// This function is called after passport successfully authenticates the user via Google/Facebook
-// MOVED HERE TO BE A TOP-LEVEL EXPORT
 exports.socialLoginCallback = async (req, res, next) => {
   try {
-    // passport attaches the user to req.user
     const user = req.user;
     if (!user) {
       const err = new Error("User authentication failed.");
       err.statusCode = 401;
       return next(err);
     }
-
-    // Generate our own JWTs for the user
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // Redirect user back to the frontend with tokens in the query string
-    res.redirect(
-      `${process.env.FRONTEND_URL}/social-auth-success?accessToken=${accessToken}&refreshToken=${refreshToken}`
-    );
+    // --- TEMPORARY CHANGE FOR TESTING ---
+    // res.redirect(
+    //   `<span class="math-inline">\{process\.env\.FRONTEND\_URL\}/social\-auth\-success?accessToken\=</span>{accessToken}&refreshToken=${refreshToken}`
+    // );
+    res.json({
+      msg: "Social login successful. Here are your details.",
+      user: user,
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    });
   } catch (error) {
     next(error);
   }
 };
 
-// --- Password Management Functions (No Changes Here) ---
+//     res.redirect(
+//       `${process.env.FRONTEND_URL}/social-auth-success?accessToken=${accessToken}&refreshToken=${refreshToken}`
+//     );
+//   } catch (error) {
+//     next(error);
+//   }
+// };
 
+// --- Password Management Functions ---
 exports.requestPasswordReset = async (req, res, next) => {
-  // ... logic remains the same
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -286,7 +279,7 @@ exports.requestPasswordReset = async (req, res, next) => {
     await user.save({ validateBeforeSave: false });
     const appName = process.env.APP_NAME || "BetWise";
     const resetUrl = `${
-      process.env.FRONTEND_URL || "http://localhost:3000"
+      process.env.FRONTEND_URL || "http://localhost:5173"
     }/reset-password/${resetToken}`;
     const messageText = `You are receiving this email because you (or someone else) have requested the reset of a password for your ${appName} account.\n\nPlease click on the following link, or paste this into your browser to complete the process within 10 minutes of receiving it:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email and your password will remain unchanged.\n\nThanks,\nThe ${appName} Team`;
     try {
@@ -314,7 +307,6 @@ exports.requestPasswordReset = async (req, res, next) => {
 };
 
 exports.resetPassword = async (req, res, next) => {
-  // ... logic remains the same
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });

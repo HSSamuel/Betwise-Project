@@ -10,7 +10,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: `${process.env.API_CALLBACK_URL}/auth/google/callback`,
+      callbackURL: `${process.env.API_CALLBACK_URL}/api/v1/auth/google/callback`,
     },
     async (accessToken, refreshToken, profile, done) => {
       // This is the "verify" callback function that runs after Google authenticates the user
@@ -56,7 +56,7 @@ passport.use(
     {
       clientID: process.env.FACEBOOK_APP_ID,
       clientSecret: process.env.FACEBOOK_APP_SECRET,
-      callbackURL: `${process.env.API_CALLBACK_URL}/auth/facebook/callback`,
+      callbackURL: `${process.env.API_CALLBACK_URL}/api/v1/auth/facebook/callback`,
       profileFields: ["id", "displayName", "emails", "name"],
     },
     async (accessToken, refreshToken, profile, done) => {

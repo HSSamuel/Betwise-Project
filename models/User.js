@@ -32,7 +32,7 @@ const userSchema = new mongoose.Schema(
     },
     password: {
       type: String,
-      // required: [true, "Password is required."], // REMOVED: A user can sign up with Google/Facebook and not have a password.
+      // required: [true, "Password is required."], A user can sign up with Google/Facebook and not have a password.
       minlength: [
         6,
         "Password must be at least 6 characters long if provided.",
@@ -43,7 +43,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    // --- CORRECTED: googleId and facebookId are now top-level fields ---
+    // --- GoogleId and facebookId are now top-level fields ---
     googleId: {
       type: String,
       unique: true,
@@ -54,7 +54,7 @@ const userSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
-    // ---------------------------------------------------------------------
+    // --- End of GoogleId and facebookId ---
     walletBalance: {
       type: Number,
       required: [true, "Wallet balance is required."],
@@ -69,6 +69,19 @@ const userSchema = new mongoose.Schema(
       },
       default: "user",
     },
+
+    // --- FIELD FOR PERSONALIZATION ---
+    favoriteLeagues: {
+      type: [String], // An array of strings
+      default: [], // Defaults to an empty array
+    },
+    // ------------------------------------
+
+    passwordResetToken: {
+      type: String,
+      select: false,
+    },
+
     passwordResetToken: {
       type: String,
       select: false,
@@ -77,6 +90,50 @@ const userSchema = new mongoose.Schema(
       type: Date,
       select: false,
     },
+    // --- NEW FIELD ---
+    responsibleGambling: {
+      status: {
+        type: String,
+        enum: ["ok", "at_risk", "restricted"],
+        default: "ok",
+      },
+      lastChecked: {
+        type: Date,
+      },
+      riskFactors: [String], // An array to store reasons for being flagged
+    },
+
+    // --- NEW FIELD FOR FRAUD DETECTION ---
+    flags: {
+      isFlaggedForFraud: {
+        type: Boolean,
+        default: false,
+      },
+      fraudReason: {
+        type: String,
+        default: "",
+      },
+    },
+    // --- FIELD FOR USER-SET LIMITS ---
+    limits: {
+      weeklyBetCount: {
+        limit: { type: Number, default: 0 }, // 0 means no limit
+        currentCount: { type: Number, default: 0 },
+        resetDate: {
+          type: Date,
+          default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      },
+      weeklyStakeAmount: {
+        limit: { type: Number, default: 0 }, // 0 means no limit
+        currentAmount: { type: Number, default: 0 },
+        resetDate: {
+          type: Date,
+          default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      },
+    },
+    // ------------------------------------
   },
   { timestamps: true }
 );

@@ -1,90 +1,122 @@
-require("dotenv").config(); // Loads environment variables from .env file
+require("dotenv").config();
 const express = require("express");
-const helmet = require("helmet"); // For security headers
-const morgan = require("morgan"); // For request logging
-const cors = require("cors"); // For Cross-Origin Resource Sharing
+const helmet = require("helmet");
+const morgan = require("morgan");
+const cors = require("cors");
+const rateLimit = require("express-rate-limit");
 const connectDB = require("./config/db");
-const passport = require("passport");
-require("./config/passport-setup"); // This executes the passport configuration code
+require("./config/passport-setup");
+const cron = require("node-cron");
+const mongoose = require("mongoose"); // <-- IMPORTED mongoose
+const { fetchAndSyncGames } = require("./services/sportsDataService");
+const { analyzePlatformRisk } = require("./scripts/monitorPlatformRisk");
 
 const app = express();
 
 // --- Essential Middleware ---
-app.use(helmet()); // Set various security HTTP headers
+app.use(helmet());
+app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173" }));
+app.use(express.json());
+app.use(morgan(process.env.NODE_ENV === "development" ? "dev" : "combined"));
 
-// CORS Configuration (adjust as needed for your frontend's origin)
-const corsOptions = {
-  origin: process.env.FRONTEND_URL || "http://localhost:8000", // Allow your frontend origin
-  optionsSuccessStatus: 200, // For legacy browser compatibility
-};
-app.use(cors(corsOptions));
+// --- Rate Limiting Setup ---
+const generalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    msg: "Too many authentication attempts from this IP, please try again after 15 minutes.",
+  },
+});
 
-app.use(express.json()); // Middleware to parse JSON request bodies
+app.use("/api", generalApiLimiter);
 
-// HTTP request logger middleware (use 'dev' for development, 'combined' for production)
-if (process.env.NODE_ENV === "development") {
-  app.use(morgan("dev"));
-} else {
-  app.use(morgan("combined")); // More detailed logging for production
-}
+// --- Route Definitions (with API Versioning) ---
+const apiVersion = "/api/v1";
 
-// --- Route Definitions ---
-app.use("/auth", require("./routes/authRoutes"));
-app.use("/games", require("./routes/gameRoutes"));
-app.use("/bets", require("./routes/betRoutes"));
-app.use("/wallet", require("./routes/walletRoutes"));
-app.use("/admin", require("./routes/adminRoutes"));
-app.use("/users", require("./routes/userRoutes"));
+app.use(`${apiVersion}/auth`, authLimiter, require("./routes/authRoutes"));
+app.use(`${apiVersion}/games`, require("./routes/gameRoutes"));
+app.use(`${apiVersion}/bets`, require("./routes/betRoutes"));
+app.use(`${apiVersion}/wallet`, require("./routes/walletRoutes"));
+app.use(`${apiVersion}/admin`, require("./routes/adminRoutes"));
+app.use(`${apiVersion}/users`, require("./routes/userRoutes"));
+app.use(`${apiVersion}/ai`, require("./routes/aiRoutes"));
 
-// Health check endpoint
+// --- Root and Info Routes ---
 app.get("/", (req, res) => {
   res.send("⚡️ Sports Betting API is up and running");
 });
+app.get("/welcome", (req, res) => {
+  res.status(200).json({
+    message:
+      "Welcome to BetWise API! Your ultimate destination for sports betting.",
+    timestamp: new Date().toISOString(),
+    location: "Nigeria",
+  });
+});
+app.get("/data-deletion-instructions", (req, res) => {
+  res.status(200).send(`...HTML content...`); // Omitted for brevity
+});
 
 // --- Error Handling Middleware ---
-
-// Handle 404 Not Found (should be after all valid routes)
 app.use((req, res, next) => {
   const error = new Error(`Route not found - ${req.originalUrl}`);
   error.statusCode = 404;
-  next(error); // Pass to the global error handler
+  next(error);
 });
 
-// Global Error Handler (should be the LAST middleware)
-// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  // console.error("Global Error Handler:", err); // Use a proper logger for the full error object/stack
-
   const statusCode = err.statusCode || 500;
-  const message =
-    err.message || "An unexpected internal server error occurred.";
-
-  // For validation errors from express-validator, err.errors might exist
-  // This could be handled more specifically if needed, but for now, use message.
-
   res.status(statusCode).json({
-    msg: message, // Use msg to be consistent with some of your existing error responses
-    // Optionally include stack trace in development for debugging
+    msg: err.message || "An unexpected internal server error occurred.",
     ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
-    ...(err.errors && { errors: err.errors }), // Include validation errors if present
   });
 });
 
-// --- Start Server ---
+// --- Server Startup ---
 const startServer = async () => {
   try {
     await connectDB();
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
-      // Replace with a proper logger:
       console.log(
         `🚀 Server running on port ${PORT} in ${
           process.env.NODE_ENV || "development"
         } mode.`
       );
+
+      // Cron job for syncing games (every 30 mins)
+      cron.schedule("*/30 * * * *", () => {
+        console.log("🕒 Running scheduled task to sync games...");
+        fetchAndSyncGames();
+      });
+      console.log(
+        "✅ Game sync task has been scheduled to run every 30 minutes."
+      );
+
+      // Cron job for Risk Monitoring (every 5 mins)
+      cron.schedule("*/5 * * * *", async () => {
+        console.log("🤖 Running scheduled task to monitor platform risk...");
+        try {
+          // This task now reuses the main database connection, which is more efficient.
+          await analyzePlatformRisk();
+        } catch (error) {
+          console.error(
+            "❌ Error during scheduled risk analysis:",
+            error.message
+          );
+        }
+      });
+      console.log("✅ Platform risk monitor scheduled to run every 5 minutes.");
     });
   } catch (dbConnectionError) {
-    // Replace with a proper logger:
     console.error(
       "❌ Failed to connect to database. Server not started.",
       dbConnectionError.message
@@ -93,10 +125,8 @@ const startServer = async () => {
   }
 };
 
-// Initialize server startup
 if (process.env.NODE_ENV !== "test") {
-  // Do not start server automatically during tests
   startServer();
 }
 
-module.exports = app; // Export app for testing purposes
+module.exports = app;
