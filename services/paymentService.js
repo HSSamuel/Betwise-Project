@@ -1,6 +1,4 @@
 // In: services/paymentService.js
-
-// Import axios to make direct API calls
 const axios = require("axios");
 
 /**
@@ -39,14 +37,16 @@ const createPaymentLink = async (amount, email, name, userId) => {
     const response = await axios.post(flutterwaveApiUrl, payload, { headers });
 
     if (response.data && response.data.status === "success") {
-      // The redirect link is in response.data.data.link
-      return response.data.data.link;
+      // This change is required: Return an object with both pieces of data.
+      return {
+        link: response.data.data.link,
+        tx_ref: payload.tx_ref,
+      };
     } else {
       console.error("Unexpected response from Flutterwave API:", response.data);
       throw new Error("Failed to create Flutterwave payment link via API.");
     }
   } catch (error) {
-    // Axios provides more detailed error messages
     console.error(
       "Flutterwave payment initiation error:",
       error.response ? error.response.data : error.message

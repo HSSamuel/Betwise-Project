@@ -42,30 +42,33 @@ exports.validateRequestWithdrawal = [
 
 // --- Controller Functions ---
 
-// NEW: Handles starting a deposit via Flutterwave
+// Handles starting a deposit via Flutterwave
 exports.initializeDeposit = async (req, res, next) => {
-  // Note: The validation error check is now handled by middleware in the route.
   try {
     const { amount } = req.body;
     const user = await User.findById(req.user._id);
 
-    const paymentLink = await createPaymentLink(
+    // 'paymentData' will be the object { link: "...", tx_ref: "..." }
+    const paymentData = await createPaymentLink(
       amount,
-      user.email,
       user.fullName,
+      user.email,
       user._id
     );
 
+    // This is the new response structure that combines the old and new formats.
     res.status(200).json({
-      message: "Payment link created successfully. Please redirect the user.",
-      paymentLink,
+      message:
+        "Payment link created successfully. Please Follow the link to process your transaction.",
+      paymentLink: paymentData.link, // Keep the original 'paymentLink' field
+      tx_ref: paymentData.tx_ref, // Add the new 'tx_ref' field
     });
   } catch (error) {
     next(error);
   }
 };
 
-// NEW: Handles the confirmation webhook from Flutterwave
+// Handles the confirmation webhook from Flutterwave
 exports.handleFlutterwaveWebhook = async (req, res, next) => {
   const signature = req.headers["verif-hash"];
   if (!signature || !verifyWebhookSignature(signature)) {
