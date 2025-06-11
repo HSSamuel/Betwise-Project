@@ -1,16 +1,10 @@
 // In: services/paymentService.js
 
-console.log("Flutterwave Public Key:", process.env.FLUTTERWAVE_PUBLIC_KEY);
-console.log("Flutterwave Secret Key:", process.env.FLUTTERWAVE_SECRET_KEY);
-const Flutterwave = require("flutterwave-node-v3");
-const flw = new Flutterwave(
-  process.env.FLUTTERWAVE_PUBLIC_KEY,
-  process.env.FLUTTERWAVE_SECRET_KEY
-);
-
+// Import axios to make direct API calls
+const axios = require("axios");
 
 /**
- * Creates a Flutterwave payment link for a user deposit.
+ * Creates a Flutterwave payment link for a user deposit by calling the API directly.
  * @param {number} amount - The amount to deposit.
  * @param {string} email - The user's email address.
  * @param {string} name - The user's full name.
@@ -19,11 +13,13 @@ const flw = new Flutterwave(
  */
 const createPaymentLink = async (amount, email, name, userId) => {
   try {
+    const flutterwaveApiUrl = "https://api.flutterwave.com/v3/payments";
+
     const payload = {
-      tx_ref: `BetWise-Deposit-${userId}-${Date.now()}`, // A unique transaction reference
+      tx_ref: `BetWise-Deposit-${userId}-${Date.now()}`,
       amount: amount,
-      currency: "NGN", // Or your desired currency
-      redirect_url: `${process.env.FRONTEND_URL}/wallet`, // URL to redirect to after payment
+      currency: "NGN",
+      redirect_url: `${process.env.FRONTEND_URL}/wallet`,
       customer: {
         email: email,
         name: name,
@@ -33,14 +29,28 @@ const createPaymentLink = async (amount, email, name, userId) => {
         description: "Fund your BetWise wallet to place bets.",
       },
     };
-    const response = await flw.Payment.initiate(payload);
-    if (response.status === "success") {
-      return response.data.link;
+
+    const headers = {
+      Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    };
+
+    // Make the API call using axios
+    const response = await axios.post(flutterwaveApiUrl, payload, { headers });
+
+    if (response.data && response.data.status === "success") {
+      // The redirect link is in response.data.data.link
+      return response.data.data.link;
     } else {
-      throw new Error("Failed to create Flutterwave payment link.");
+      console.error("Unexpected response from Flutterwave API:", response.data);
+      throw new Error("Failed to create Flutterwave payment link via API.");
     }
   } catch (error) {
-    console.error("Flutterwave payment initiation error:", error);
+    // Axios provides more detailed error messages
+    console.error(
+      "Flutterwave payment initiation error:",
+      error.response ? error.response.data : error.message
+    );
     throw error;
   }
 };
