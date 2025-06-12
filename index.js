@@ -51,12 +51,13 @@ app.use(`${apiVersion}/ai`, require("./routes/aiRoutes"));
 
 // --- Root and Info Routes ---
 app.get("/", (req, res) => {
-  res.send("⚡️ Sports Betting API is up and running");
+  res.send(
+    "Welcome to BetWise API! Your ultimate destination for sports betting."
+  );
 });
 app.get("/welcome", (req, res) => {
   res.status(200).json({
-    message:
-      "Welcome to BetWise API! Your ultimate destination for sports betting.",
+    message: "⚡️ Sports Betting API is up and running.",
     timestamp: new Date().toISOString(),
     location: "Nigeria",
   });
