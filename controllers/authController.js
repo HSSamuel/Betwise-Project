@@ -284,7 +284,7 @@ exports.requestPasswordReset = async (req, res, next) => {
     const messageText = `You are receiving this email because you (or someone else) have requested the reset of a password for your ${appName} account.\n\nPlease click on the following link, or paste this into your browser to complete the process within 10 minutes of receiving it:\n\n${resetUrl}\n\nIf you did not request this, please ignore this email and your password will remain unchanged.\n\nThanks,\nThe ${appName} Team`;
     try {
       await sendEmail({
-        email: user.email,
+        to: user.email,
         subject: `Your ${appName} Password Reset Token (valid for 10 min)`,
         message: messageText,
       });
