@@ -112,8 +112,14 @@ To run the automated test suite defined in the `tests/` folder:
 ```bash
 npm test
 ```
+**LINK TO MY POSTMAN COLLECTION**
+https://documenter.getpostman.com/view/44593190/2sB2x6jrft
 
-_Source_:
+**Social Login**
+
+Facebook Browser Url= https://betwise-project.onrender.com/api/v1/auth/facebook
+
+Google Browser Url= https://betwise-project.onrender.com/api/v1/auth/google
 
 ## 🔌 API Endpoint Reference
 
