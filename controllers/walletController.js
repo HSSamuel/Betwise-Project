@@ -69,10 +69,13 @@ exports.initializeDeposit = async (req, res, next) => {
   }
 };
 
-// Handles the confirmation webhook from Flutterwave
+// This is the corrected function
 exports.handleFlutterwaveWebhook = async (req, res, next) => {
+  console.log("--- WEBHOOK RECEIVED! ---");
+
   const signature = req.headers["verif-hash"];
   if (!signature || !verifyWebhookSignature(signature)) {
+    // This security check is important. If it fails, the function stops here.
     return res.status(401).send("Unauthorized");
   }
 
