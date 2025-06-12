@@ -13,7 +13,40 @@ const {
 const { auth } = require("../middleware/authMiddleware");
 const passport = require("passport");
 
-// ... (Social login routes remain the same)
+// ## --- SOCIAL LOGIN---
+// @route   GET /api/v1/auth/google
+// @desc    Initiate Google OAuth login
+// @access  Public
+router.get(
+  "/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
+
+// @route   GET /api/v1/auth/google/callback
+// @desc    Google OAuth callback URL
+// @access  Public
+router.get(
+  "/google/callback",
+  passport.authenticate("google", { session: false }),
+  authController.socialLoginCallback
+);
+
+// @route   GET /api/v1/auth/facebook
+// @desc    Initiate Facebook OAuth login
+// @access  Public
+router.get(
+  "/facebook",
+  passport.authenticate("facebook", { scope: ["email"] })
+);
+
+// @route   GET /api/v1/auth/facebook/callback
+// @desc    Facebook OAuth callback URL
+// @access  Public
+router.get(
+  "/facebook/callback",
+  passport.authenticate("facebook", { session: false }),
+  authController.socialLoginCallback
+);
 
 router.post(
   "/register",
