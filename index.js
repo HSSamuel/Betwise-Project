@@ -7,11 +7,12 @@ const rateLimit = require("express-rate-limit");
 const connectDB = require("./config/db");
 require("./config/passport-setup");
 const cron = require("node-cron");
-const mongoose = require("mongoose"); // <-- IMPORTED mongoose
+const mongoose = require("mongoose"); //
 const { fetchAndSyncGames } = require("./services/sportsDataService");
 const { analyzePlatformRisk } = require("./scripts/monitorPlatformRisk");
 
 const app = express();
+app.set("json spaces", 2);
 
 // --- Essential Middleware ---
 app.use(helmet());
