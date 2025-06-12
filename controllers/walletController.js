@@ -49,10 +49,11 @@ exports.initializeDeposit = async (req, res, next) => {
     const user = await User.findById(req.user._id);
 
     // 'paymentData' will be the object { link: "...", tx_ref: "..." }
+    // Correct argument order
     const paymentData = await createPaymentLink(
       amount,
-      user.fullName,
       user.email,
+      user.fullName,
       user._id
     );
 
