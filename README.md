@@ -226,4 +226,4 @@ The `.env` file is crucial for configuring the application. It contains keys for
 
 ## 📄 Author
 
-Created by HUNSA, S. Samuel
+Created by HUNSA Semako Samuel
