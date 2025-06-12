@@ -318,13 +318,145 @@ exports.placeBet = async (req, res, next) => {
 
 // ... (getUserBets, getBetById, and resolveBets functions remain the same)
 exports.getUserBets = async (req, res, next) => {
-  /* ... */
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const { status, gameId, page = 1, limit = 10 } = req.query;
+
+    // Base filter to only get bets for the logged-in user
+    const filter = { user: req.user._id };
+
+    // Add optional filters from query parameters
+    if (status) filter.status = status;
+    if (gameId) filter["selections.game"] = gameId; // Filter by a game within the selections array
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+
+    // Execute the query with sorting and pagination
+    const bets = await Bet.find(filter)
+      .sort({ createdAt: -1 }) // Show newest bets first
+      .skip(skip)
+      .limit(limit)
+      // Populate game details selectively to improve performance
+      .populate({
+        path: "selections.game",
+        select: "homeTeam awayTeam league matchDate result",
+      })
+      .lean(); // Use .lean() for faster, read-only operations
+
+    // Get the total count of documents for pagination metadata
+    const totalBets = await Bet.countDocuments(filter);
+
+    res.status(200).json({
+      bets,
+      currentPage: page,
+      totalPages: Math.ceil(totalBets / limit),
+      totalCount: totalBets,
+    });
+  } catch (error) {
+    // Pass any errors to the global error handler
+    next(error);
+  }
 };
+
 exports.getBetById = async (req, res, next) => {
-  /* ... */
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const betId = req.params.id;
+    const userId = req.user._id; // Get the ID of the logged-in user from the auth middleware
+
+    // Find a bet that matches the betId AND belongs to the currently logged-in user
+    const bet = await Bet.findOne({ _id: betId, user: userId })
+      .populate({
+        path: "selections.game", // Populate the game details within the selections array
+        select:
+          "homeTeam awayTeam league matchDate result homeTeamLogo awayTeamLogo",
+      })
+      .lean(); // Use .lean() for faster, read-only queries
+
+    // If no bet is found, it either doesn't exist or belongs to another user
+    if (!bet) {
+      const err = new Error(
+        "Bet not found or you do not have permission to view it."
+      );
+      err.statusCode = 404;
+      return next(err);
+    }
+
+    // If successful, send the bet details
+    res.status(200).json(bet);
+  } catch (error) {
+    next(error);
+  }
 };
+
 exports.resolveBets = async (game, session) => {
-  /* ... */
+  // Find all pending single bets for the game that just finished
+  const betsToResolve = await Bet.find({
+    game: game._id,
+    status: "pending",
+    betType: "single", // Only resolve single bets here
+  }).session(session);
+
+  if (betsToResolve.length === 0) {
+    console.log(`No pending single bets to resolve for game: ${game._id}`);
+    return; // Exit if there's nothing to do
+  }
+
+  console.log(
+    `Resolving ${betsToResolve.length} single bets for game: ${game._id}`
+  );
+
+  for (const bet of betsToResolve) {
+    const user = await User.findById(bet.user).session(session);
+    if (!user) {
+      console.warn(`User for bet ${bet._id} not found. Skipping.`);
+      continue;
+    }
+
+    // Check if the user's predicted outcome matches the actual game result
+    if (bet.outcome === game.result) {
+      // --- Bet is WON ---
+      let winningOdds;
+      if (bet.outcome === "A") winningOdds = bet.oddsAtTimeOfBet.home;
+      else if (bet.outcome === "B") winningOdds = bet.oddsAtTimeOfBet.away;
+      else winningOdds = bet.oddsAtTimeOfBet.draw;
+
+      const payout = bet.stake * winningOdds;
+      bet.status = "won";
+      bet.payout = parseFloat(payout.toFixed(2));
+
+      // Add winnings to the user's wallet
+      user.walletBalance += bet.payout;
+
+      // Create a transaction record for the win
+      await new Transaction({
+        user: user._id,
+        type: "win",
+        amount: bet.payout,
+        balanceAfter: user.walletBalance,
+        bet: bet._id,
+        game: game._id,
+        description: `Winnings for bet on ${game.homeTeam} vs ${game.awayTeam}`,
+      }).save({ session });
+    } else {
+      // --- Bet is LOST ---
+      bet.status = "lost";
+      bet.payout = 0;
+    }
+
+    // Save the updated bet and user documents within the transaction
+    await bet.save({ session });
+    await user.save({ session });
+  }
 };
 
 // --- NEW VALIDATOR for Multi-Bets ---
