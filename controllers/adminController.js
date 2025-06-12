@@ -188,6 +188,7 @@ exports.listUsers = async (req, res, next) => {
       sortBy = "createdAt",
       order = "desc",
       search,
+      flagged,
     } = req.query;
     const filter = {};
     if (role) filter.role = role;
