@@ -70,90 +70,54 @@ exports.initializeDeposit = async (req, res, next) => {
 };
 
 exports.handleFlutterwaveWebhook = async (req, res, next) => {
-  console.log("--- WEBHOOK RECEIVED! ---");
-  // Log the entire data package from Flutterwave
-  console.log("Full Webhook Payload:", JSON.stringify(req.body, null, 2));
-
   const signature = req.headers["verif-hash"];
   if (!signature || !verifyWebhookSignature(signature)) {
-    console.log("!!! Webhook security check FAILED. Signature did not match.");
     return res.status(401).send("Unauthorized");
   }
-  console.log("✅ Webhook security check PASSED.");
 
   const payload = req.body;
 
-  // CHECK 1: Is the payment status correct?
-  if (payload.status === "successful" && payload.event === "charge.completed") {
-    console.log(
-      "✅ Payment status is 'successful'. Proceeding to update wallet."
-    );
-
+  // The only check we need is if the payment status is "successful".
+  if (payload.status === "successful") {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-      const tx_ref = payload.data.tx_ref;
+      // Use payload.txRef from the webhook data, which matches payload.data.tx_ref
+      const tx_ref = payload.txRef || payload.data.tx_ref;
       const userId = tx_ref ? tx_ref.split("-")[2] : null;
-      console.log(`Parsed User ID from tx_ref: ${userId}`);
 
       if (!userId) {
         throw new Error("Could not parse User ID from transaction reference.");
       }
 
-      const amount = payload.data.amount;
-      console.log(
-        `Attempting to find user '${userId}' to credit with amount: ${amount}`
-      );
-
+      const amount = payload.amount || payload.data.amount;
       const user = await User.findById(userId).session(session);
 
-      // CHECK 2: Was the user found in the database?
       if (user) {
-        console.log(
-          `✅ User '${user.username}' found. Current balance: ${user.walletBalance}`
-        );
         user.walletBalance += amount;
         await user.save({ session });
-        console.log(`✅ Balance updated. New balance: ${user.walletBalance}`);
 
         await new Transaction({
           user: user._id,
           type: "topup",
           amount: amount,
           balanceAfter: user.walletBalance,
-          description: `Wallet top-up via Flutterwave. Ref: ${payload.data.flw_ref}`,
+          description: `Wallet top-up via Flutterwave. Ref: ${
+            payload.flwRef || payload.data.flw_ref
+          }`,
         }).save({ session });
-        console.log("✅ Transaction record created.");
-      } else {
-        // This is a likely point of failure
-        console.log(
-          `!!! CRITICAL ERROR: User with ID '${userId}' was not found in the database.`
-        );
       }
-
       await session.commitTransaction();
-      console.log("✅ Database transaction committed.");
     } catch (error) {
       await session.abortTransaction();
-      console.error(
-        "!!! CRITICAL ERROR during webhook transaction processing:",
-        error
-      );
+      console.error("Webhook processing error:", error);
       return res.status(500).send("Error processing webhook.");
     } finally {
       session.endSession();
     }
-  } else {
-    // This is also a likely point of failure
-    console.log(
-      "!!! Webhook ignored: Payment status was not 'successful' or event was not 'charge.completed'."
-    );
-    console.log(
-      `Received Status: '${payload.status}', Received Event: '${payload.event}'`
-    );
   }
 
-  res.status(200).send("Webhook received and processed.");
+  res.status(200).send("Webhook received.");
 };
 
 exports.getWallet = async (req, res, next) => {
