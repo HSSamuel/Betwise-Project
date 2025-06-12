@@ -41,9 +41,17 @@ const gameSchema = new mongoose.Schema(
       required: [true, "Home team name is required."],
       trim: true,
     },
+    homeTeamLogo: {
+      type: String,
+      trim: true,
+    },
     awayTeam: {
       type: String,
       required: [true, "Away team name is required."],
+      trim: true,
+    },
+    awayTeamLogo: {
+      type: String,
       trim: true,
     },
     odds: {

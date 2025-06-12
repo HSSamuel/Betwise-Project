@@ -73,6 +73,8 @@ const fetchAndSyncGames = async (specificLeagueId = null) => {
           const gameData = {
             homeTeam: apiGame.teams.home.name,
             awayTeam: apiGame.teams.away.name,
+            homeTeamLogo: apiGame.teams.home.logo,
+            awayTeamLogo: apiGame.teams.away.logo,
             matchDate: new Date(apiGame.fixture.date),
             league: `${apiGame.league.name} ${apiGame.league.season}`,
             status: "upcoming",
