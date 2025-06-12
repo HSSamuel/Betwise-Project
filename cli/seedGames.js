@@ -18,8 +18,6 @@ const inTwoDays = new Date(today);
 inTwoDays.setDate(today.getDate() + 2);
 const inThreeDays = new Date(today);
 inThreeDays.setDate(today.getDate() + 3);
-const inFourDays = new Date(today);
-inThreeDays.setDate(today.getDate() + 4);
 
 const sampleGames = [
   {
@@ -43,7 +41,7 @@ const sampleGames = [
     awayTeam: "Inter Miami",
     odds: { home: 2.5, away: 2.8, draw: 3.4 },
     league: "Cub World Cup",
-    matchDate: inTwoDays.setHours(13, 0, 0), // In two days at 1:00 PM
+    matchDate: inThreeDays.setHours(13, 0, 0), // In three days at 1:00 PM
     status: "upcoming",
   },
   {
@@ -51,7 +49,7 @@ const sampleGames = [
     awayTeam: "Auckland City",
     odds: { home: 1.9, away: 3.5, draw: 3.8 },
     league: "Cub World Cup",
-    matchDate: inTwoDays.setHours(17, 0, 0), // In two days at 5:00 PM
+    matchDate: inThreeDays.setHours(17, 0, 0), // In three days at 5:00 PM
     status: "upcoming",
   },
   {
@@ -59,7 +57,7 @@ const sampleGames = [
     awayTeam: "Atletico Madrid",
     odds: { home: 1.5, away: 5.5, draw: 4.5 },
     league: "Club World Cup",
-    matchDate: inTwoDays.setHours(20, 30, 0), // In two days at 8:00 PM
+    matchDate: inThreeDays.setHours(20, 30, 0), // In three days at 8:00 PM
     status: "upcoming",
   },
   {
@@ -67,7 +65,7 @@ const sampleGames = [
     awayTeam: "Porto",
     odds: { home: 2.2, away: 3.1, draw: 2.9 },
     league: "Club World Cup",
-    matchDate: inTwoDays.setHours(23, 0, 0), // In two days at 9:00 PM
+    matchDate: inThreeDays.setHours(23, 0, 0), // In three days at 9:00 PM
     status: "upcoming",
   },
 ];
