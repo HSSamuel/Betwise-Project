@@ -235,7 +235,6 @@ exports.placeBet = async (req, res, next) => {
     session.startTransaction();
 
     try {
-      // We re-fetch the user inside the transaction to ensure data consistency
       const userInSession = await User.findById(userId).session(session);
       const game = await Game.findById(gameId).session(session);
       if (!game) throw new Error("Game not found.");
@@ -247,11 +246,21 @@ exports.placeBet = async (req, res, next) => {
         throw new Error("Insufficient funds in your wallet.");
       }
 
-      // Update wallet and preferences
+      // --- FIX IS HERE ---
+      // Determine the specific odd for the chosen outcome
+      let selectedOdd;
+      if (outcome === "A") selectedOdd = game.odds.home;
+      else if (outcome === "B") selectedOdd = game.odds.away;
+      else if (outcome === "Draw") selectedOdd = game.odds.draw;
+
+      if (!selectedOdd) {
+        throw new Error("Odds for the selected outcome are not available.");
+      }
+      // --- END FIX ---
+
       userInSession.walletBalance -= stake;
       userInSession.favoriteLeagues.addToSet(game.league);
 
-      // Update limit counters
       if (userInSession.limits.weeklyBetCount.limit > 0) {
         userInSession.limits.weeklyBetCount.currentCount += 1;
       }
@@ -262,9 +271,20 @@ exports.placeBet = async (req, res, next) => {
 
       const bet = new Bet({
         user: userId,
-        game: gameId,
-        outcome,
+        betType: "single", // Explicitly set betType
         stake,
+        totalOdds: selectedOdd, // Provide the required totalOdds
+        selections: [
+          {
+            // Use the modern 'selections' array for consistency
+            game: gameId,
+            outcome: outcome,
+            odds: selectedOdd,
+          },
+        ],
+        // Legacy fields for backward compatibility if needed, but not primary
+        game: gameId,
+        outcome: outcome,
         oddsAtTimeOfBet: game.odds,
       });
       await bet.save({ session });
@@ -287,7 +307,7 @@ exports.placeBet = async (req, res, next) => {
       });
     } catch (error) {
       await session.abortTransaction();
-      throw error; // Re-throw to be caught by the outer catch block
+      throw error;
     } finally {
       session.endSession();
     }
@@ -415,13 +435,11 @@ exports.placeMultiBet = async (req, res, next) => {
     }).save({ session });
 
     await session.commitTransaction();
-    res
-      .status(201)
-      .json({
-        msg: "Multi-bet placed successfully!",
-        bet: multiBet,
-        walletBalance: user.walletBalance,
-      });
+    res.status(201).json({
+      msg: "Multi-bet placed successfully!",
+      bet: multiBet,
+      walletBalance: user.walletBalance,
+    });
   } catch (error) {
     await session.abortTransaction();
     next(error);
