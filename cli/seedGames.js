@@ -24,9 +24,7 @@ inThreeDays.setDate(today.getDate() + 4);
 const sampleGames = [
   {
     homeTeam: "Manchester City",
-    homeTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     awayTeam: "Manchester United",
-    awayTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     odds: { home: 1.9, away: 3.5, draw: 3.8 },
     league: "Friendly",
     matchDate: tomorrow.setHours(17, 0, 0), // Tomorrow at 5:00 PM
@@ -34,9 +32,7 @@ const sampleGames = [
   },
   {
     homeTeam: "Barcelona",
-    homeTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     awayTeam: "Real Madrid",
-    awayTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     odds: { home: 1.9, away: 3.5, draw: 3.8 },
     league: "El Clasico",
     matchDate: tomorrow.setHours(20, 0, 0), // Tomorrow at 8:00 PM
@@ -44,9 +40,7 @@ const sampleGames = [
   },
   {
     homeTeam: "Al Ahly",
-    homeTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     awayTeam: "Inter Miami",
-    awayTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     odds: { home: 2.5, away: 2.8, draw: 3.4 },
     league: "Cub World Cup",
     matchDate: inThreeDays.setHours(13, 0, 0), // In three days at 1:00 PM
@@ -54,9 +48,7 @@ const sampleGames = [
   },
   {
     homeTeam: "Bayern Munich",
-    homeTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     awayTeam: "Auckland City",
-    awayTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     odds: { home: 1.9, away: 3.5, draw: 3.8 },
     league: "Cub World Cup",
     matchDate: inThreeDays.setHours(17, 0, 0), // Tomorrow at 5:00 PM
@@ -64,9 +56,7 @@ const sampleGames = [
   },
   {
     homeTeam: "Paris Saint-Germain",
-    homeTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     awayTeam: "Atletico Madrid",
-    awayTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     odds: { home: 1.5, away: 5.5, draw: 4.5 },
     league: "Club World Cup",
     matchDate: inThreeDays.setHours(20, 30, 0), // In two days at 8:00 PM
@@ -74,9 +64,7 @@ const sampleGames = [
   },
   {
     homeTeam: "Palmeiras",
-    homeTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     awayTeam: "Porto",
-    awayTeamLogo: "https://media.api-sports.io/football/teams/33.png",
     odds: { home: 2.2, away: 3.1, draw: 2.9 },
     league: "Club World Cup",
     matchDate: inThreeDays.setHours(23, 0, 0), // In two days at 9:00 PM
