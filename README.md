@@ -46,19 +46,20 @@ BetWise is a feature-rich sports betting backend platform. It allows users to re
 ## 🏗️ Project Structure
 
 ```
-/cli            → Command-line tools (admin/user scripts)
-/config         → Database and Passport.js configuration
-/controllers    → Core logic for admin, auth, bets, games, users, wallet, AI
-/middleware     → Authentication and validation middleware
-/models         → Mongoose schemas for User, Game, Bet, Transaction, etc.
-/routes         → API route handlers
-/scripts        → Helper and automated scripts (e.g., analysis, seeding)
-/services       → Modules for external APIs (Flutterwave, Sports Data, AI)
-/tests          → Unit and integration tests
-index.js        → Main application entry point
-.env            → Environment variables (gitignored)
-package.json    → Project metadata and dependencies
-README.md       → This file
+/cli                → Command-line tools (admin/user scripts)
+/config             → Database and Passport.js configuration
+/controllers        → Core logic for admin, auth, bets, games, users, wallet, AI
+/middleware         → Authentication and validation middleware
+/models             → Mongoose schemas for User, Game, Bet, Transaction, etc.
+/routes             → API route handlers
+/scripts            → Helper and automated scripts (e.g., analysis, seeding)
+/services           → Modules for external APIs (Flutterwave, Sports Data, AI)
+/tests              → Unit and integration tests
+index.js            → Main application entry point
+mock_ml_server.js   → To test scripts that depend on an AI model, like analyzeGamblingPatterns.js
+.env                → Environment variables (gitignored)
+package.json        → Project metadata and dependencies
+README.md           → This file
 ```
 
 _Source_:
