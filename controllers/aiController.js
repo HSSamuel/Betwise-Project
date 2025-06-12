@@ -16,7 +16,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 exports.handleChat = async (req, res, next) => {
   try {
-    const { message } = req.body;
+    // Now expecting 'message' and an optional 'history' array from the client
+    const { message, history = [] } = req.body;
+
     if (!message) {
       const err = new Error(
         'A "message" field is required in the request body.'
@@ -24,8 +26,12 @@ exports.handleChat = async (req, res, next) => {
       err.statusCode = 400;
       return next(err);
     }
+
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const systemPrompt = `You are a friendly and helpful customer support assistant for a sports betting app called "BetWise". Your goal is to answer user questions clearly and concisely. Do not provide betting advice or predict game outcomes. If a question is outside the scope of the BetWise app, politely state that you can only answer questions related to BetWise. The user asking the question is ${req.user.username}.`;
+
+    // Initialize the chat with the provided history.
+    // For the first message, the history will be empty.
     const chat = model.startChat({
       history: [
         { role: "user", parts: [{ text: systemPrompt }] },
@@ -33,12 +39,33 @@ exports.handleChat = async (req, res, next) => {
           role: "model",
           parts: [{ text: "Hello! How can I help you with BetWise today?" }],
         },
+        ...history, // Spread the existing chat history here
       ],
       generationConfig: { maxOutputTokens: 200 },
     });
+
     const result = await chat.sendMessage(message);
     const response = result.response;
-    res.status(200).json({ reply: response.text() });
+    const replyText = response.text();
+
+    // Construct the new, updated history to send back to the client
+    const updatedHistory = [
+      ...history,
+      {
+        role: "user",
+        parts: [{ text: message }],
+      },
+      {
+        role: "model",
+        parts: [{ text: replyText }],
+      },
+    ];
+
+    // Send back both the reply and the new history
+    res.status(200).json({
+      reply: replyText,
+      updatedHistory: updatedHistory,
+    });
   } catch (error) {
     console.error("AI chat handler error:", error);
     next(error);
