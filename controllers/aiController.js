@@ -16,7 +16,6 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 exports.handleChat = async (req, res, next) => {
   try {
-    // Now expecting 'message' and an optional 'history' array from the client
     const { message, history = [] } = req.body;
 
     if (!message) {
@@ -28,18 +27,23 @@ exports.handleChat = async (req, res, next) => {
     }
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const systemPrompt = `You are a friendly and helpful customer support assistant for a sports betting app called "BetWise". Your goal is to answer user questions clearly and concisely. Do not provide betting advice or predict game outcomes. If a question is outside the scope of the BetWise app, politely state that you can only answer questions related to BetWise. The user asking the question is ${req.user.username}.`;
 
-    // Initialize the chat with the provided history.
-    // For the first message, the history will be empty.
+    // --- SYSTEM PROMPT ---
+    const systemPrompt = `You are a knowledgeable and engaging football expert working for a sports betting app called "BetWise". Your goal is to answer user questions about general football knowledge, including teams, players, match history, and fun facts. You can also answer questions about how to use the BetWise app. However, you must strictly follow these rules: Do not provide direct betting advice or financial advice. Do not predict the outcome of future games. Politely decline if asked for betting tips. The user you are talking to is ${req.user.username}.`;
+    // ------------------------------------
+
     const chat = model.startChat({
       history: [
         { role: "user", parts: [{ text: systemPrompt }] },
         {
           role: "model",
-          parts: [{ text: "Hello! How can I help you with BetWise today?" }],
+          parts: [
+            {
+              text: "Hello! I'm the BetWise assistant. You can ask me about football history, players, or how to use the app. How can I help?",
+            },
+          ],
         },
-        ...history, // Spread the existing chat history here
+        ...history,
       ],
       generationConfig: { maxOutputTokens: 200 },
     });
@@ -48,7 +52,6 @@ exports.handleChat = async (req, res, next) => {
     const response = result.response;
     const replyText = response.text();
 
-    // Construct the new, updated history to send back to the client
     const updatedHistory = [
       ...history,
       {
@@ -61,7 +64,6 @@ exports.handleChat = async (req, res, next) => {
       },
     ];
 
-    // Send back both the reply and the new history
     res.status(200).json({
       reply: replyText,
       updatedHistory: updatedHistory,

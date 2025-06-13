@@ -113,6 +113,7 @@ To run the automated test suite defined in the `tests/` folder:
 ```bash
 npm test
 ```
+
 **LINK TO MY POSTMAN COLLECTION**
 
 https://documenter.getpostman.com/view/44593190/2sB2x6jrft
