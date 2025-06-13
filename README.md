@@ -104,7 +104,7 @@ _Source_:
   `bash
 npm start
 `
-  The server will start on the port defined in your `.env` file (default is 5000).
+  The server starts on port defined in my `.env` file (default is 5000).
 
 ## 🧪 Running Tests
 
@@ -206,14 +206,14 @@ Here is a comprehensive list of all API endpoints for the BetWise platform. The 
 
 The `.env` file is crucial for configuring the application. It contains keys for:
 
-- `MONGODB_URI` / `MONGODB_TEST_URI`: Your database connection strings.
+- `MONGODB_URI` / `MONGODB_TEST_URI`: My database connection strings.
 - `JWT_SECRET` / `JWT_REFRESH_SECRET`: Secrets for signing tokens.
-- `PORT`: The port on which the server will run.
+- `PORT`: The port on which the server runs.
 - `EMAIL_*`: Credentials for Nodemailer to send emails.
 - `GOOGLE_*` / `FACEBOOK_*`: OAuth credentials for social logins.
-- `GEMINI_API_KEY`: Your API key for Google Gemini.
-- `APIFOOTBALL_KEY`: Your API key for API-Football.
-- `FLUTTERWAVE_*`: Your public key, secret key, encryption key, and webhook hash for Flutterwave payments.
+- `GEMINI_API_KEY`: My API key for Google Gemini.
+- `APIFOOTBALL_KEY`: My API key for API-Football.
+- `FLUTTERWAVE_*`: My public key, secret key, encryption key, and webhook hash for Flutterwave payments.
 - `PLATFORM_RISK_THRESHOLD`: The financial threshold for triggering a risk alert.
 - `ADMIN_ALERT_EMAIL`: The email address to receive risk alerts.
   _Source for all variables_:
