@@ -10,8 +10,9 @@ BetWise is a feature-rich sports betting backend platform. It allows users to re
 - **Wallet Management**: User wallets with deposit functionality via Flutterwave and an admin-moderated withdrawal system.
 - **Comprehensive Betting**: Place single bets or multi-selection accumulator bets on upcoming games.
 - **Dynamic Game Data**: Fetches and syncs real-world game fixtures from external sports APIs using scheduled cron jobs.
+  
 - **AI Integration**:
-  - AI-powered support chatbot for user queries.
+  - **Context-Aware AI Chatbot**: A support chatbot that can answer general queries and securely access user-specific data to answer questions like "What's my balance?" or "Show me my last bet."  - AI-powered support chatbot for user queries.
   - Natural language processing for placing bets (e.g., "I want to bet 500 on Chelsea").
   - Responsible gambling interventions and personalized feedback.
 - **Responsible Gambling Tools**: Users can set their own weekly betting count and staking limits.

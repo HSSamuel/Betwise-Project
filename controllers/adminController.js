@@ -6,6 +6,13 @@ const Withdrawal = require("../models/Withdrawal");
 const { query, body, param, validationResult } = require("express-validator");
 const mongoose = require("mongoose");
 const { fetchAndSyncGames } = require("../services/sportsDataService");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+// Initialize Gemini AI
+if (!process.env.GEMINI_API_KEY) {
+  throw new Error("GEMINI_API_KEY is not defined in the .env file.");
+}
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Admin: Get basic platform statistics
 exports.getPlatformStats = async (req, res, next) => {
@@ -491,6 +498,102 @@ exports.getGameRiskAnalysis = async (req, res, next) => {
     res.status(200).json({
       message: "Platform risk analysis for game.",
       analysis: formattedResponse,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// --- FUNCTION for Platform Risk Analysis ---
+// NOTE: getGameRiskAnalysis remains unchanged. We will call it from our new function.
+
+exports.getGameRiskAnalysis = async (req, res, next) => {
+  // ... (existing implementation is perfect)
+};
+
+// --- NEW FUNCTION for AI-Powered Risk Summary ---
+exports.getGameRiskSummary = async (req, res, next) => {
+  try {
+    const { id: gameId } = req.params;
+
+    // Step 1: Get the raw numerical risk analysis data.
+    // We can reuse the aggregation pipeline logic.
+    const riskPipeline = [
+      {
+        $match: {
+          game: new mongoose.Types.ObjectId(gameId),
+          status: "pending",
+        },
+      },
+      {
+        $project: {
+          stake: 1,
+          outcome: 1,
+          potentialPayout: {
+            $switch: {
+              branches: [
+                {
+                  case: { $eq: ["$outcome", "A"] },
+                  then: { $multiply: ["$stake", "$oddsAtTimeOfBet.home"] },
+                },
+                {
+                  case: { $eq: ["$outcome", "B"] },
+                  then: { $multiply: ["$stake", "$oddsAtTimeOfBet.away"] },
+                },
+                {
+                  case: { $eq: ["$outcome", "Draw"] },
+                  then: { $multiply: ["$stake", "$oddsAtTimeOfBet.draw"] },
+                },
+              ],
+              default: 0,
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$outcome",
+          totalStake: { $sum: "$stake" },
+          totalPotentialPayout: { $sum: "$potentialPayout" },
+          betCount: { $sum: 1 },
+        },
+      },
+    ];
+
+    const riskAnalysis = await Bet.aggregate(riskPipeline);
+    const game = await Game.findById(gameId).lean();
+    if (!game) {
+      return res.status(404).json({ message: "Game not found." });
+    }
+
+    // Step 2: Prepare a prompt for the AI with the data.
+    const prompt = `
+    You are a senior risk analyst for a sports betting company.
+    Analyze the following betting data for the upcoming match: "${
+      game.homeTeam
+    } vs. ${
+      game.awayTeam
+    }" and provide a concise, 1-2 paragraph risk summary for a non-technical admin.
+
+    Your summary should:
+    - Start with a clear "Overall Risk Assessment:" (e.g., Low, Moderate, High).
+    - Identify which outcome (Home Win, Away Win, Draw) has the highest financial exposure (potential payout).
+    - Mention the total amount staked on that outcome and the number of bets.
+    - Conclude with a clear recommendation, such as "No action needed," "Monitor closely," or "Immediate review of betting patterns is recommended."
+
+    Here is the data:
+    ${JSON.stringify(riskAnalysis, null, 2)}
+  `;
+
+    // Step 3: Call the AI model and send the response.
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const result = await model.generateContent(prompt);
+    const summary = result.response.text();
+
+    res.status(200).json({
+      message: "AI-powered risk summary for game.",
+      summary: summary.trim(),
+      rawData: riskAnalysis, // Also return the raw data for context
     });
   } catch (error) {
     next(error);

@@ -20,6 +20,7 @@ const {
   validateAdminAdjustWallet,
   validateProcessWithdrawal,
   getGameRiskAnalysis,
+  getGameRiskSummary,
 } = require("../controllers/adminController");
 const { manualGameSync } = require("../controllers/adminController");
 const { validateGameId } = require("../controllers/gameController");
@@ -105,6 +106,17 @@ router.get(
   isAdmin,
   validateGameId,
   getGameRiskAnalysis
+);
+
+// @route   GET /admin/games/:id/risk-summary
+// @desc    Admin: Get an AI-powered risk summary for a specific game
+// @access  Private (Admin)
+router.get(
+  "/games/:id/risk-summary",
+  auth,
+  isAdmin,
+  validateGameId,
+  getGameRiskSummary
 );
 
 module.exports = router;

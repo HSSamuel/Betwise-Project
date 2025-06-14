@@ -26,11 +26,30 @@ exports.handleChat = async (req, res, next) => {
       return next(err);
     }
 
+    // --- Fetch user-specific context ---
+    const user = await User.findById(req.user._id).lean();
+    const recentBets = await Bet.find({ user: user._id })
+      .sort({ createdAt: -1 })
+      .limit(3)
+      .populate("selections.game", "homeTeam awayTeam") // Populate game details
+      .lean();
+
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    // --- SYSTEM PROMPT ---
-    const systemPrompt = `You are a knowledgeable and engaging football expert working for a sports betting app called "BetWise". Your goal is to answer user questions about general football knowledge, including teams, players, match history, and fun facts. You can also answer questions about how to use the BetWise app. However, you must strictly follow these rules: Do not provide direct betting advice or financial advice. Do not predict the outcome of future games. Politely decline if asked for betting tips. The user you are talking to is ${req.user.username}.`;
-    // ------------------------------------
+    // --- Dynamic System Prompt ---
+    const systemPrompt = `You are a helpful and secure personal assistant for the "BetWise" sports betting app.
+    The user you are speaking with is "${user.username}".
+
+    Here is the user's current, real-time information. Use this data ONLY if the user asks for it directly. Do not volunteer this information.
+    - User's Wallet Balance: $${user.walletBalance.toFixed(2)}
+    - User's Last 3 Bets:
+      ${formatBetsForPrompt(recentBets)}
+
+    Your rules are:
+    1.  You can answer questions about football, teams, players, and how to use the BetWise app.
+    2.  You can answer direct questions about the user's own balance and recent bet history using the data provided above.
+    3.  You MUST STRICTLY refuse to provide betting tips, predict game outcomes, or give any form of financial advice.
+    4.  Keep your answers friendly and concise.`;
 
     const chat = model.startChat({
       history: [
@@ -45,7 +64,7 @@ exports.handleChat = async (req, res, next) => {
         },
         ...history,
       ],
-      generationConfig: { maxOutputTokens: 200 },
+      generationConfig: { maxOutputTokens: 250 },
     });
 
     const result = await chat.sendMessage(message);
