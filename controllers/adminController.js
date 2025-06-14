@@ -415,7 +415,7 @@ exports.manualGameSync = async (req, res, next) => {
   }
 };
 
-// --- NEW FUNCTION for Platform Risk Analysis ---
+// --- FUNCTION for Platform Risk Analysis ---
 exports.getGameRiskAnalysis = async (req, res, next) => {
   try {
     const { id: gameId } = req.params;
@@ -504,15 +504,12 @@ exports.getGameRiskAnalysis = async (req, res, next) => {
   }
 };
 
-// --- FUNCTION for Platform Risk Analysis ---
-// NOTE: getGameRiskAnalysis remains unchanged. We will call it from our new function.
-
-exports.getGameRiskAnalysis = async (req, res, next) => {
-  // ... (existing implementation is perfect)
-};
-
-// --- NEW FUNCTION for AI-Powered Risk Summary ---
+// --- FUNCTION for AI-Powered Risk Summary ---
 exports.getGameRiskSummary = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
   try {
     const { id: gameId } = req.params;
 
