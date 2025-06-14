@@ -12,6 +12,34 @@ if (!process.env.GEMINI_API_KEY) {
 }
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+/**
+ * Helper function to format recent bets into a string for the AI prompt.
+ * @param {Array} bets - An array of bet objects.
+ * @returns {string} A formatted string listing recent bets.
+ */
+const formatBetsForPrompt = (bets) => {
+  if (!bets || bets.length === 0) {
+    return "No recent bets found.";
+  }
+  return bets
+    .map((bet, index) => {
+      const betDetails =
+        bet.selections && bet.selections.length > 0
+          ? bet.selections
+              .map(
+                (s) =>
+                  `${s.game.homeTeam} vs ${s.game.awayTeam} (Your pick: ${s.outcome})`
+              )
+              .join(" | ")
+          : "Details unavailable";
+
+      return `${index + 1}. Stake: $${bet.stake.toFixed(2)}, Status: ${
+        bet.status
+      }, Details: ${betDetails}`;
+    })
+    .join("\n  ");
+};
+
 // --- Controller Functions ---
 
 exports.handleChat = async (req, res, next) => {
@@ -31,7 +59,7 @@ exports.handleChat = async (req, res, next) => {
     const recentBets = await Bet.find({ user: user._id })
       .sort({ createdAt: -1 })
       .limit(3)
-      .populate("selections.game", "homeTeam awayTeam") // Populate game details
+      .populate("selections.game", "homeTeam awayTeam")
       .lean();
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -58,7 +86,7 @@ exports.handleChat = async (req, res, next) => {
           role: "model",
           parts: [
             {
-              text: "Hello! I'm the BetWise assistant. You can ask me about football history, players, or how to use the app. How can I help?",
+              text: `Hello ${user.username}! I'm your BetWise assistant. You can ask me about football, how the app works, or about your own account. How can I help?`,
             },
           ],
         },
@@ -93,6 +121,7 @@ exports.handleChat = async (req, res, next) => {
   }
 };
 
+// ... (The rest of your functions in the file: generateGameSummary, generateInterventionMessage, etc. remain the same) ...
 exports.generateGameSummary = async (homeTeam, awayTeam, league) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -192,7 +221,6 @@ exports.getBettingFeedback = async (req, res, next) => {
   }
 };
 
-// This is the single, correct version of this function. The old one has been removed.
 exports.parseBetIntent = async (req, res, next) => {
   try {
     const { text } = req.body;
@@ -272,20 +300,17 @@ exports.parseBetIntent = async (req, res, next) => {
   }
 };
 
-// --- FUNCTION for Personalized Limit Suggestions ---
 exports.generateLimitSuggestion = async (req, res, next) => {
   try {
     const userId = req.user._id;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    // 1. Analyze user's betting history over the last 30 days
     const recentBets = await Bet.find({
       user: userId,
       createdAt: { $gte: thirtyDaysAgo },
     });
 
     if (recentBets.length < 5) {
-      // Don't suggest if there's not enough data
       return res.status(200).json({
         suggestion:
           "We need a bit more betting history before we can suggest personalized limits. Keep playing responsibly!",
@@ -293,10 +318,9 @@ exports.generateLimitSuggestion = async (req, res, next) => {
     }
 
     const totalStaked = recentBets.reduce((sum, bet) => sum + bet.stake, 0);
-    const averageWeeklyStake = (totalStaked / 4.28).toFixed(0); // Approx weeks in 30 days
+    const averageWeeklyStake = (totalStaked / 4.28).toFixed(0);
     const averageWeeklyBetCount = (recentBets.length / 4.28).toFixed(0);
 
-    // 2. Ask the AI to generate a supportive suggestion based on the data
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = `
           You are a caring and supportive responsible gambling assistant for "BetWise".
@@ -318,8 +342,8 @@ exports.generateLimitSuggestion = async (req, res, next) => {
     res.status(200).json({
       suggestion: suggestionText,
       suggestedLimits: {
-        betCount: Math.ceil(averageWeeklyBetCount / 5) * 5 + 5, // Round up and add 5
-        stakeAmount: Math.ceil((averageWeeklyStake * 1.25) / 10) * 10, // Round up to nearest 10
+        betCount: Math.ceil(averageWeeklyBetCount / 5) * 5 + 5,
+        stakeAmount: Math.ceil((averageWeeklyStake * 1.25) / 10) * 10,
       },
     });
   } catch (error) {
