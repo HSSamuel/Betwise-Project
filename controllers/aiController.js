@@ -99,21 +99,8 @@ exports.handleChat = async (req, res, next) => {
     const response = result.response;
     const replyText = response.text();
 
-    const updatedHistory = [
-      ...history,
-      {
-        role: "user",
-        parts: [{ text: message }],
-      },
-      {
-        role: "model",
-        parts: [{ text: replyText }],
-      },
-    ];
-
     res.status(200).json({
       reply: replyText,
-      updatedHistory: updatedHistory,
     });
   } catch (error) {
     console.error("AI chat handler error:", error);
