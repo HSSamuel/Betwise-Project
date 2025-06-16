@@ -233,10 +233,6 @@ exports.socialLoginCallback = async (req, res, next) => {
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
-    // --- TEMPORARY CHANGE FOR TESTING ---
-    // res.redirect(
-    //   `<span class="math-inline">\{process\.env\.FRONTEND\_URL\}/social\-auth\-success?accessToken\=</span>{accessToken}&refreshToken=${refreshToken}`
-    // );
     res.json({
       msg: "Social login successful. Here are your details.",
       user: user,
@@ -247,14 +243,6 @@ exports.socialLoginCallback = async (req, res, next) => {
     next(error);
   }
 };
-
-//     res.redirect(
-//       `${process.env.FRONTEND_URL}/social-auth-success?accessToken=${accessToken}&refreshToken=${refreshToken}`
-//     );
-//   } catch (error) {
-//     next(error);
-//   }
-// };
 
 // --- Password Management Functions ---
 exports.requestPasswordReset = async (req, res, next) => {

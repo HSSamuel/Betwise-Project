@@ -108,7 +108,6 @@ exports.handleChat = async (req, res, next) => {
   }
 };
 
-// ... (The rest of your functions in the file: generateGameSummary, generateInterventionMessage, etc. remain the same) ...
 exports.generateGameSummary = async (homeTeam, awayTeam, league) => {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
